@@ -1,0 +1,19 @@
+# Material local de planejamento e aprendizagem
+_private/
+
+# Segredos e configuração local
+.env
+.env.*
+!.env.example
+
+# Dados e artefatos gerados
+*.log
+coverage/
+tmp/
+.cache/
+
+# Editores e sistema operacional
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
