@@ -7,7 +7,9 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx watch src/main.ts",
     "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
     "start": "node dist/main.js",
+    "test": "pnpm build && node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

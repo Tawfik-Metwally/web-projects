@@ -27,7 +27,9 @@ services:
 
   api:
     <<: *app-base
-    command: pnpm --filter @benchledger/api dev
+    command: >-
+      sh -c "pnpm --filter @benchledger/api prisma:migrate &&
+      pnpm --filter @benchledger/api dev"
     depends_on:
       db:
         condition: service_healthy
