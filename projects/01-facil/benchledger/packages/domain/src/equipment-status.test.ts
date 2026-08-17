@@ -27,6 +27,18 @@ describe("deriveEquipmentStatus", () => {
     ).toEqual({ status: "ACTIVE", dueDate: null });
   });
 
+  it("surfaces the latest failed calibration ahead of deadline states", () => {
+    expect(
+      deriveEquipmentStatus({
+        asOf,
+        isOutOfService: false,
+        calibrationIntervalDays: 365,
+        lastSuccessfulCalibrationAt: new Date("2026-07-01T00:00:00.000Z"),
+        lastFailedCalibrationAt: new Date("2026-08-14T16:30:00.000Z"),
+      }),
+    ).toEqual({ status: "CALIBRATION_FAILED", dueDate: "2027-07-01" });
+  });
+
   it("marks required calibration with no successful event as overdue", () => {
     expect(
       deriveEquipmentStatus({

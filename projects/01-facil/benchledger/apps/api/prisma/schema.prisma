@@ -17,9 +17,37 @@ model Equipment {
   serialNumber            String?  @unique @db.VarChar(100)
   location                String   @db.VarChar(100)
   calibrationIntervalDays Int?
+  archivedAt              DateTime?        @db.Timestamptz(3)
   createdAt               DateTime @default(now()) @db.Timestamptz(3)
   updatedAt               DateTime @updatedAt @db.Timestamptz(3)
+  events                  EquipmentEvent[]
 
   @@index([category])
   @@index([location])
+  @@index([archivedAt])
+}
+
+enum EquipmentEventType {
+  CALIBRATION
+  MAINTENANCE
+  OUT_OF_SERVICE
+  RETURNED_TO_SERVICE
+  CORRECTION
+}
+
+model EquipmentEvent {
+  id          String             @id @default(uuid()) @db.Uuid
+  equipmentId String             @db.Uuid
+  type        EquipmentEventType
+  occurredAt  DateTime           @db.Timestamptz(3)
+  successful  Boolean?
+  note        String?            @db.VarChar(500)
+  correctsEventId String?        @unique @db.Uuid
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+  equipment   Equipment          @relation(fields: [equipmentId], references: [id], onDelete: Restrict)
+  correctsEvent EquipmentEvent?  @relation("EventCorrections", fields: [correctsEventId], references: [id], onDelete: Restrict)
+  correction    EquipmentEvent?  @relation("EventCorrections")
+
+  @@index([equipmentId, occurredAt(sort: Desc)])
+  @@index([type, occurredAt(sort: Desc)])
 }

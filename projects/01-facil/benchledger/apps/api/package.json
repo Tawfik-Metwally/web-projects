@@ -9,10 +9,11 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "start": "node dist/main.js",
-    "test": "pnpm build && node --test tests/*.test.mjs",
+    "test": "pnpm --filter @benchledger/domain build && pnpm build && node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@benchledger/domain": "workspace:*",
     "@nestjs/common": "11.2.1",
     "@nestjs/core": "11.2.1",
     "@nestjs/platform-express": "11.2.1",

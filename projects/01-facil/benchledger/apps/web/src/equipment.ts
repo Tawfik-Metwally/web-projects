@@ -8,8 +8,26 @@ export interface Equipment {
   serialNumber: string | null;
   location: string;
   calibrationIntervalDays: number | null;
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  status: EquipmentStatus;
+  dueDate: string | null;
+  lastSuccessfulCalibrationAt: string | null;
+  events: EquipmentEvent[];
+}
+
+export type EquipmentStatus = "ACTIVE" | "DUE_SOON" | "OVERDUE" | "CALIBRATION_FAILED" | "OUT_OF_SERVICE";
+export type EquipmentEventType = "CALIBRATION" | "MAINTENANCE" | "OUT_OF_SERVICE" | "RETURNED_TO_SERVICE" | "CORRECTION";
+
+export interface EquipmentEvent {
+  id: string;
+  type: EquipmentEventType;
+  occurredAt: string;
+  successful: boolean | null;
+  note: string | null;
+  correctsEventId: string | null;
+  createdAt: string;
 }
 
 export interface CreateEquipmentInput {
@@ -21,6 +39,23 @@ export interface CreateEquipmentInput {
   serialNumber?: string;
   location: string;
   calibrationIntervalDays?: number;
+}
+
+export interface UpdateEquipmentInput {
+  name?: string;
+  category?: string;
+  manufacturer?: string | null;
+  model?: string | null;
+  serialNumber?: string | null;
+  location?: string;
+  calibrationIntervalDays?: number | null;
+}
+
+export interface CreateEquipmentEventInput {
+  type: "CALIBRATION" | "MAINTENANCE";
+  occurredAt: string;
+  successful?: boolean;
+  note?: string;
 }
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3000/api";
@@ -55,4 +90,34 @@ export async function createEquipment(input: CreateEquipmentInput): Promise<Equi
   }
 
   return (await response.json()) as Equipment;
+}
+
+async function mutateEquipment(path: string, method: "PATCH" | "POST", body: object): Promise<Equipment> {
+  const response = await fetch(`${apiUrl}/equipment/${path}`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(await parseError(response));
+  return (await response.json()) as Equipment;
+}
+
+export function updateEquipment(id: string, input: UpdateEquipmentInput): Promise<Equipment> {
+  return mutateEquipment(id, "PATCH", input);
+}
+
+export function addEquipmentEvent(id: string, input: CreateEquipmentEventInput): Promise<Equipment> {
+  return mutateEquipment(`${id}/events`, "POST", input);
+}
+
+export function archiveEquipment(id: string, note?: string): Promise<Equipment> {
+  return mutateEquipment(`${id}/archive`, "POST", { note });
+}
+
+export function restoreEquipment(id: string, note?: string): Promise<Equipment> {
+  return mutateEquipment(`${id}/restore`, "POST", { note });
+}
+
+export function correctEquipmentEvent(id: string, eventId: string, note: string): Promise<Equipment> {
+  return mutateEquipment(`${id}/events/${eventId}/corrections`, "POST", { note });
 }

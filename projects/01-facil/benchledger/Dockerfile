@@ -13,7 +13,8 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-RUN DATABASE_URL=postgresql://benchledger:benchledger_local@db:5432/benchledger \
+RUN pnpm --filter @benchledger/domain build && \
+    DATABASE_URL=postgresql://benchledger:benchledger_local@db:5432/benchledger \
     pnpm --filter @benchledger/api prisma:generate
 
 EXPOSE 3000 5173

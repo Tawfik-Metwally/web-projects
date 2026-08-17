@@ -1,10 +1,11 @@
-export type EquipmentStatus = "ACTIVE" | "DUE_SOON" | "OVERDUE" | "OUT_OF_SERVICE";
+export type EquipmentStatus = "ACTIVE" | "DUE_SOON" | "OVERDUE" | "CALIBRATION_FAILED" | "OUT_OF_SERVICE";
 
 export interface EquipmentStatusInput {
   asOf: Date;
   isOutOfService: boolean;
   calibrationIntervalDays: number | null;
   lastSuccessfulCalibrationAt: Date | null;
+  lastFailedCalibrationAt?: Date | null;
   warningWindowDays?: number;
 }
 
@@ -32,12 +33,26 @@ export function deriveEquipmentStatus(input: EquipmentStatusInput): EquipmentSta
     return { status: "OUT_OF_SERVICE", dueDate: null };
   }
 
-  if (input.calibrationIntervalDays === null) {
-    return { status: "ACTIVE", dueDate: null };
+  if (
+    input.calibrationIntervalDays !== null &&
+    (!Number.isInteger(input.calibrationIntervalDays) || input.calibrationIntervalDays <= 0)
+  ) {
+    throw new RangeError("calibrationIntervalDays must be a positive integer or null");
   }
 
-  if (!Number.isInteger(input.calibrationIntervalDays) || input.calibrationIntervalDays <= 0) {
-    throw new RangeError("calibrationIntervalDays must be a positive integer or null");
+  const dueDate = input.calibrationIntervalDays && input.lastSuccessfulCalibrationAt
+    ? addUtcDays(input.lastSuccessfulCalibrationAt, input.calibrationIntervalDays)
+    : null;
+
+  if (
+    input.lastFailedCalibrationAt &&
+    (!input.lastSuccessfulCalibrationAt || input.lastFailedCalibrationAt > input.lastSuccessfulCalibrationAt)
+  ) {
+    return { status: "CALIBRATION_FAILED", dueDate: dueDate ? toUtcDate(dueDate) : null };
+  }
+
+  if (input.calibrationIntervalDays === null) {
+    return { status: "ACTIVE", dueDate: null };
   }
 
   if (!input.lastSuccessfulCalibrationAt) {
@@ -50,16 +65,16 @@ export function deriveEquipmentStatus(input: EquipmentStatusInput): EquipmentSta
   }
 
   const today = startOfUtcDay(input.asOf);
-  const dueDate = addUtcDays(input.lastSuccessfulCalibrationAt, input.calibrationIntervalDays);
   const warningDate = addUtcDays(today, warningWindowDays);
+  const requiredDueDate = dueDate as Date;
 
-  if (dueDate < today) {
-    return { status: "OVERDUE", dueDate: toUtcDate(dueDate) };
+  if (requiredDueDate < today) {
+    return { status: "OVERDUE", dueDate: toUtcDate(requiredDueDate) };
   }
 
-  if (dueDate <= warningDate) {
-    return { status: "DUE_SOON", dueDate: toUtcDate(dueDate) };
+  if (requiredDueDate <= warningDate) {
+    return { status: "DUE_SOON", dueDate: toUtcDate(requiredDueDate) };
   }
 
-  return { status: "ACTIVE", dueDate: toUtcDate(dueDate) };
+  return { status: "ACTIVE", dueDate: toUtcDate(requiredDueDate) };
 }
