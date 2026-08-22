@@ -5,6 +5,18 @@ import { deriveEquipmentStatus } from "./equipment-status.js";
 const asOf = new Date("2026-08-15T12:00:00.000Z");
 
 describe("deriveEquipmentStatus", () => {
+  it("gives logical deletion precedence over operational states", () => {
+    expect(
+      deriveEquipmentStatus({
+        asOf,
+        isDeleted: true,
+        isOutOfService: true,
+        calibrationIntervalDays: 365,
+        lastSuccessfulCalibrationAt: null,
+      }),
+    ).toEqual({ status: "DELETED", dueDate: null });
+  });
+
   it("gives an explicit removal from service the highest precedence", () => {
     expect(
       deriveEquipmentStatus({

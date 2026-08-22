@@ -24,6 +24,7 @@ const stored = {
   model: null,
   serialNumber: null,
   archivedAt: null,
+  deletedAt: null,
   createdAt: new Date("2026-08-16T12:00:00.000Z"),
   updatedAt: new Date("2026-08-16T12:00:00.000Z"),
   events: [],
@@ -65,6 +66,14 @@ describe("equipment input validation", () => {
     );
     assert.throws(
       () => pipe.transform({ type: "CALIBRATION", occurredAt: "2026-08-17T12:00:00.000Z" }),
+      BadRequestException,
+    );
+    assert.throws(
+      () => pipe.transform({ type: "MAINTENANCE", occurredAt: "2026-08-17" }),
+      BadRequestException,
+    );
+    assert.throws(
+      () => pipe.transform({ type: "MAINTENANCE", occurredAt: new Date(Date.now() + 10 * 60_000).toISOString() }),
       BadRequestException,
     );
   });
@@ -121,6 +130,37 @@ describe("EquipmentService", () => {
     assert.equal(operations[1].operation.data.type, "OUT_OF_SERVICE");
   });
 
+  it("soft deletes equipment with history and can restore it", async () => {
+    const operations = [];
+    let current = stored;
+    const service = new EquipmentService({
+      equipment: {
+        findUnique: async () => current,
+        update: (operation) => {
+          operations.push({ kind: "update", operation });
+          current = { ...current, ...operation.data };
+          return Promise.resolve(current);
+        },
+      },
+      equipmentEvent: {
+        create: (operation) => {
+          operations.push({ kind: "event", operation });
+          return Promise.resolve({});
+        },
+      },
+      $transaction: async (promises) => Promise.all(promises),
+    });
+    service.findOne = async () => ({ ...current, status: current.deletedAt ? "DELETED" : "OVERDUE" });
+
+    const deleted = await service.remove(stored.id, "Created during a test");
+    assert.equal(deleted.status, "DELETED");
+    assert.equal(operations[1].operation.data.type, "DELETED");
+
+    const restored = await service.restoreDeleted(stored.id, "Record is valid");
+    assert.equal(restored.status, "OVERDUE");
+    assert.equal(operations[3].operation.data.type, "RESTORED_FROM_DELETION");
+  });
+
   it("surfaces failed calibration and ignores it after an append-only correction", async () => {
     const failedEvent = {
       id: "d66e1ce7-c211-44c6-b3c5-913d00f9ba29",
@@ -168,6 +208,25 @@ describe("EquipmentService", () => {
     await assert.rejects(
       () => missingService.findOne("45ec7ab7-a193-4784-8277-73559fd70d45"),
       NotFoundException,
+    );
+
+    const correctionConflictService = new EquipmentService({
+      equipment: {
+        findUnique: async () => stored,
+      },
+      equipmentEvent: {
+        findFirst: async () => ({ id: "d66e1ce7-c211-44c6-b3c5-913d00f9ba29", type: "CALIBRATION" }),
+        findUnique: async () => null,
+        create: async () => Promise.reject({ code: "P2002" }),
+      },
+    });
+    await assert.rejects(
+      () => correctionConflictService.correctEvent(
+        stored.id,
+        "d66e1ce7-c211-44c6-b3c5-913d00f9ba29",
+        "Duplicate correction race",
+      ),
+      ConflictException,
     );
   });
 });

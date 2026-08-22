@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Inject, Param, ParseUUIDPipe, Patch, Post } from "@nestjs/common";
 
 import { CreateEquipmentPipe, type CreateEquipmentInput } from "./create-equipment.pipe.js";
 import { CorrectEquipmentEventPipe, type CorrectEquipmentEventInput } from "./correct-equipment-event.pipe.js";
@@ -32,6 +32,22 @@ export class EquipmentController {
     @Body(UpdateEquipmentPipe) input: UpdateEquipmentInput,
   ) {
     return this.equipmentService.update(id, input);
+  }
+
+  @Delete(":id")
+  public remove(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Body(EquipmentStatePipe) input: EquipmentStateInput,
+  ) {
+    return this.equipmentService.remove(id, input.note);
+  }
+
+  @Post(":id/restore-deleted")
+  public restoreDeleted(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Body(EquipmentStatePipe) input: EquipmentStateInput,
+  ) {
+    return this.equipmentService.restoreDeleted(id, input.note);
   }
 
   @Post(":id/events")

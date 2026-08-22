@@ -8,6 +8,8 @@ export interface CreateEquipmentEventInput {
 }
 
 type InputRecord = Record<string, unknown>;
+const isoDateTimePattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+const maximumClockSkewMs = 5 * 60 * 1000;
 
 @Injectable()
 export class CreateEquipmentEventPipe implements PipeTransform<unknown, CreateEquipmentEventInput> {
@@ -26,12 +28,15 @@ export class CreateEquipmentEventPipe implements PipeTransform<unknown, CreateEq
       throw new BadRequestException("type must be CALIBRATION or MAINTENANCE");
     }
 
-    if (typeof input.occurredAt !== "string") {
+    if (typeof input.occurredAt !== "string" || !isoDateTimePattern.test(input.occurredAt)) {
       throw new BadRequestException("occurredAt must be an ISO date-time string");
     }
     const occurredAt = new Date(input.occurredAt);
     if (Number.isNaN(occurredAt.getTime())) {
       throw new BadRequestException("occurredAt must be a valid ISO date-time string");
+    }
+    if (occurredAt.getTime() > Date.now() + maximumClockSkewMs) {
+      throw new BadRequestException("occurredAt cannot be in the future");
     }
 
     if (input.successful !== undefined && typeof input.successful !== "boolean") {

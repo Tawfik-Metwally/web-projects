@@ -8,7 +8,7 @@ import type { UpdateEquipmentInput } from "./update-equipment.pipe.js";
 
 interface EventRecord {
   id: string;
-  type: "CALIBRATION" | "MAINTENANCE" | "OUT_OF_SERVICE" | "RETURNED_TO_SERVICE" | "CORRECTION";
+  type: "CALIBRATION" | "MAINTENANCE" | "OUT_OF_SERVICE" | "RETURNED_TO_SERVICE" | "CORRECTION" | "DELETED" | "RESTORED_FROM_DELETION";
   occurredAt: Date;
   successful: boolean | null;
   note: string | null;
@@ -27,6 +27,7 @@ interface EquipmentRecord {
   location: string;
   calibrationIntervalDays: number | null;
   archivedAt: Date | null;
+  deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   events: EventRecord[];
@@ -48,6 +49,7 @@ function toEquipmentView(equipment: EquipmentRecord) {
   const derived = deriveEquipmentStatus({
     asOf: new Date(),
     isOutOfService: equipment.archivedAt !== null,
+    isDeleted: equipment.deletedAt !== null,
     calibrationIntervalDays: equipment.calibrationIntervalDays,
     lastSuccessfulCalibrationAt: lastSuccessfulCalibration?.occurredAt ?? null,
     lastFailedCalibrationAt: lastCalibrationAttempt?.successful === false ? lastCalibrationAttempt.occurredAt : null,
@@ -102,7 +104,7 @@ export class EquipmentService {
   }
 
   public async update(id: string, input: UpdateEquipmentInput) {
-    await this.ensureExists(id);
+    await this.ensureMutable(id);
     try {
       await this.prisma.equipment.update({ where: { id }, data: input });
       return await this.findOne(id);
@@ -114,8 +116,40 @@ export class EquipmentService {
     }
   }
 
+  public async remove(id: string, note?: string) {
+    const equipment = await this.ensureExists(id);
+    if (equipment.deletedAt) {
+      throw new ConflictException("equipment is already deleted");
+    }
+
+    const occurredAt = new Date();
+    await this.prisma.$transaction([
+      this.prisma.equipment.update({ where: { id }, data: { deletedAt: occurredAt } }),
+      this.prisma.equipmentEvent.create({
+        data: { equipmentId: id, type: "DELETED", occurredAt, note },
+      }),
+    ]);
+    return this.findOne(id);
+  }
+
+  public async restoreDeleted(id: string, note?: string) {
+    const equipment = await this.ensureExists(id);
+    if (!equipment.deletedAt) {
+      throw new ConflictException("equipment is not deleted");
+    }
+
+    const occurredAt = new Date();
+    await this.prisma.$transaction([
+      this.prisma.equipment.update({ where: { id }, data: { deletedAt: null } }),
+      this.prisma.equipmentEvent.create({
+        data: { equipmentId: id, type: "RESTORED_FROM_DELETION", occurredAt, note },
+      }),
+    ]);
+    return this.findOne(id);
+  }
+
   public async addEvent(id: string, input: CreateEquipmentEventInput) {
-    await this.ensureExists(id);
+    await this.ensureMutable(id);
     await this.prisma.equipmentEvent.create({
       data: {
         equipmentId: id,
@@ -129,7 +163,7 @@ export class EquipmentService {
   }
 
   public async correctEvent(id: string, eventId: string, note: string) {
-    await this.ensureExists(id);
+    await this.ensureMutable(id);
     const event = await this.prisma.equipmentEvent.findFirst({ where: { id: eventId, equipmentId: id } });
     if (!event || (event.type !== "CALIBRATION" && event.type !== "MAINTENANCE")) {
       throw new NotFoundException("correctable event not found");
@@ -138,20 +172,27 @@ export class EquipmentService {
     if (existingCorrection) {
       throw new ConflictException("event already has a correction");
     }
-    await this.prisma.equipmentEvent.create({
-      data: {
-        equipmentId: id,
-        type: "CORRECTION",
-        occurredAt: new Date(),
-        note,
-        correctsEventId: eventId,
-      },
-    });
+    try {
+      await this.prisma.equipmentEvent.create({
+        data: {
+          equipmentId: id,
+          type: "CORRECTION",
+          occurredAt: new Date(),
+          note,
+          correctsEventId: eventId,
+        },
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        throw new ConflictException("event already has a correction");
+      }
+      throw error;
+    }
     return this.findOne(id);
   }
 
   public async archive(id: string, note?: string) {
-    const equipment = await this.ensureExists(id);
+    const equipment = await this.ensureMutable(id);
     if (equipment.archivedAt) {
       throw new ConflictException("equipment is already out of service");
     }
@@ -167,7 +208,7 @@ export class EquipmentService {
   }
 
   public async restore(id: string, note?: string) {
-    const equipment = await this.ensureExists(id);
+    const equipment = await this.ensureMutable(id);
     if (!equipment.archivedAt) {
       throw new ConflictException("equipment is already in service");
     }
@@ -186,6 +227,14 @@ export class EquipmentService {
     const equipment = await this.prisma.equipment.findUnique({ where: { id } });
     if (!equipment) {
       throw new NotFoundException("equipment not found");
+    }
+    return equipment;
+  }
+
+  private async ensureMutable(id: string) {
+    const equipment = await this.ensureExists(id);
+    if (equipment.deletedAt) {
+      throw new ConflictException("restore deleted equipment before changing it");
     }
     return equipment;
   }

@@ -1,22 +1,19 @@
 import { BadRequestException, Injectable, type PipeTransform } from "@nestjs/common";
 
+import { rejectUnknownFields, requireInputRecord } from "./input-validation.js";
+
 export interface EquipmentStateInput {
   note?: string;
 }
+
+const allowedFields = new Set(["note"]);
 
 @Injectable()
 export class EquipmentStatePipe implements PipeTransform<unknown, EquipmentStateInput> {
   public transform(value: unknown): EquipmentStateInput {
     if (value === undefined || value === null) return {};
-    if (typeof value !== "object" || Array.isArray(value)) {
-      throw new BadRequestException("request body must be an object");
-    }
-
-    const input = value as Record<string, unknown>;
-    const unknownFields = Object.keys(input).filter((field) => field !== "note");
-    if (unknownFields.length > 0) {
-      throw new BadRequestException(`unknown fields: ${unknownFields.join(", ")}`);
-    }
+    const input = requireInputRecord(value);
+    rejectUnknownFields(input, allowedFields);
 
     if (input.note === undefined || input.note === null || input.note === "") return {};
     if (typeof input.note !== "string" || input.note.trim().length > 500) {

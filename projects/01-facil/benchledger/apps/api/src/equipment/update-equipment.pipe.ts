@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, type PipeTransform } from "@nestjs/common";
 
+import { rejectUnknownFields, requireInputRecord, requireTrimmedText } from "./input-validation.js";
+
 export interface UpdateEquipmentInput {
   name?: string;
   category?: string;
@@ -10,8 +12,6 @@ export interface UpdateEquipmentInput {
   calibrationIntervalDays?: number | null;
 }
 
-type InputRecord = Record<string, unknown>;
-
 const fieldLimits = {
   name: 120,
   category: 80,
@@ -21,30 +21,22 @@ const fieldLimits = {
   location: 100,
 } as const;
 
-function isRecord(value: unknown): value is InputRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+const allowedFields = new Set([...Object.keys(fieldLimits), "calibrationIntervalDays"]);
 
 @Injectable()
 export class UpdateEquipmentPipe implements PipeTransform<unknown, UpdateEquipmentInput> {
   public transform(value: unknown): UpdateEquipmentInput {
-    if (!isRecord(value)) {
-      throw new BadRequestException("request body must be an object");
-    }
+    const input = requireInputRecord(value);
+    rejectUnknownFields(input, allowedFields);
 
-    const unknownFields = Object.keys(value).filter((field) => !(field in fieldLimits) && field !== "calibrationIntervalDays");
-    if (unknownFields.length > 0) {
-      throw new BadRequestException(`unknown fields: ${unknownFields.join(", ")}`);
-    }
-
-    if (Object.keys(value).length === 0) {
+    if (Object.keys(input).length === 0) {
       throw new BadRequestException("at least one field is required");
     }
 
     const result: UpdateEquipmentInput = {};
     for (const [field, maxLength] of Object.entries(fieldLimits)) {
-      if (!(field in value)) continue;
-      const raw = value[field];
+      if (!(field in input)) continue;
+      const raw = input[field];
       const nullable = field === "manufacturer" || field === "model" || field === "serialNumber";
 
       if (nullable && (raw === null || raw === "")) {
@@ -52,14 +44,11 @@ export class UpdateEquipmentPipe implements PipeTransform<unknown, UpdateEquipme
         continue;
       }
 
-      if (typeof raw !== "string" || raw.trim().length === 0 || raw.trim().length > maxLength) {
-        throw new BadRequestException(`${field} must have between 1 and ${maxLength} characters`);
-      }
-      Object.assign(result, { [field]: raw.trim() });
+      Object.assign(result, { [field]: requireTrimmedText(raw, field, maxLength) });
     }
 
-    if ("calibrationIntervalDays" in value) {
-      const interval = value.calibrationIntervalDays;
+    if ("calibrationIntervalDays" in input) {
+      const interval = input.calibrationIntervalDays;
       if (interval === null) {
         result.calibrationIntervalDays = null;
       } else if (!Number.isInteger(interval) || Number(interval) <= 0) {

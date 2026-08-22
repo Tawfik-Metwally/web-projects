@@ -9,6 +9,7 @@ export interface Equipment {
   location: string;
   calibrationIntervalDays: number | null;
   archivedAt: string | null;
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
   status: EquipmentStatus;
@@ -17,8 +18,8 @@ export interface Equipment {
   events: EquipmentEvent[];
 }
 
-export type EquipmentStatus = "ACTIVE" | "DUE_SOON" | "OVERDUE" | "CALIBRATION_FAILED" | "OUT_OF_SERVICE";
-export type EquipmentEventType = "CALIBRATION" | "MAINTENANCE" | "OUT_OF_SERVICE" | "RETURNED_TO_SERVICE" | "CORRECTION";
+export type EquipmentStatus = "ACTIVE" | "DUE_SOON" | "OVERDUE" | "CALIBRATION_FAILED" | "OUT_OF_SERVICE" | "DELETED";
+export type EquipmentEventType = "CALIBRATION" | "MAINTENANCE" | "OUT_OF_SERVICE" | "RETURNED_TO_SERVICE" | "CORRECTION" | "DELETED" | "RESTORED_FROM_DELETION";
 
 export interface EquipmentEvent {
   id: string;
@@ -92,7 +93,7 @@ export async function createEquipment(input: CreateEquipmentInput): Promise<Equi
   return (await response.json()) as Equipment;
 }
 
-async function mutateEquipment(path: string, method: "PATCH" | "POST", body: object): Promise<Equipment> {
+async function mutateEquipment(path: string, method: "PATCH" | "POST" | "DELETE", body: object): Promise<Equipment> {
   const response = await fetch(`${apiUrl}/equipment/${path}`, {
     method,
     headers: { "Content-Type": "application/json" },
@@ -104,6 +105,14 @@ async function mutateEquipment(path: string, method: "PATCH" | "POST", body: obj
 
 export function updateEquipment(id: string, input: UpdateEquipmentInput): Promise<Equipment> {
   return mutateEquipment(id, "PATCH", input);
+}
+
+export function deleteEquipment(id: string, note?: string): Promise<Equipment> {
+  return mutateEquipment(id, "DELETE", { note });
+}
+
+export function restoreDeletedEquipment(id: string, note?: string): Promise<Equipment> {
+  return mutateEquipment(`${id}/restore-deleted`, "POST", { note });
 }
 
 export function addEquipmentEvent(id: string, input: CreateEquipmentEventInput): Promise<Equipment> {

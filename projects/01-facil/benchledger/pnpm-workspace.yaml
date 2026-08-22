@@ -2,6 +2,9 @@ packages:
   - apps/*
   - packages/*
 
+overrides:
+  deepmerge-ts: 8.0.1
+
 allowBuilds:
   "@prisma/engines": true
   esbuild: true

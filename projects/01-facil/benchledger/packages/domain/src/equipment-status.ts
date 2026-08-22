@@ -1,8 +1,9 @@
-export type EquipmentStatus = "ACTIVE" | "DUE_SOON" | "OVERDUE" | "CALIBRATION_FAILED" | "OUT_OF_SERVICE";
+export type EquipmentStatus = "ACTIVE" | "DUE_SOON" | "OVERDUE" | "CALIBRATION_FAILED" | "OUT_OF_SERVICE" | "DELETED";
 
 export interface EquipmentStatusInput {
   asOf: Date;
   isOutOfService: boolean;
+  isDeleted?: boolean;
   calibrationIntervalDays: number | null;
   lastSuccessfulCalibrationAt: Date | null;
   lastFailedCalibrationAt?: Date | null;
@@ -29,6 +30,10 @@ function toUtcDate(value: Date): string {
 }
 
 export function deriveEquipmentStatus(input: EquipmentStatusInput): EquipmentStatusResult {
+  if (input.isDeleted) {
+    return { status: "DELETED", dueDate: null };
+  }
+
   if (input.isOutOfService) {
     return { status: "OUT_OF_SERVICE", dueDate: null };
   }
