@@ -1,0 +1,34 @@
+{
+  "name": "Payment Sandbox API",
+  "dockerComposeFile": [
+    "../compose.yaml",
+    "compose.extend.yaml"
+  ],
+  "service": "dev",
+  "workspaceFolder": "/workspace",
+  "shutdownAction": "stopCompose",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1.10.0": {}
+  },
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": {
+      "label": "Payment Sandbox API",
+      "onAutoForward": "notify"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "vscjava.vscode-java-pack",
+        "vmware.vscode-boot-dev-pack"
+      ],
+      "settings": {
+        "java.configuration.updateBuildConfiguration": "automatic",
+        "telemetry.telemetryLevel": "off",
+        "telemetry.enableTelemetry": false
+      }
+    }
+  },
+  "remoteUser": "ubuntu"
+}

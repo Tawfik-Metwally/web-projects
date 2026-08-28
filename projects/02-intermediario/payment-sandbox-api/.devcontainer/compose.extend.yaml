@@ -1,0 +1,25 @@
+services:
+  api:
+    profiles:
+      - packaged-api
+
+  dev:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${APP_DB_NAME}
+      SPRING_DATASOURCE_USERNAME: ${APP_DB_USER}
+      SPRING_DATASOURCE_PASSWORD: ${APP_DB_PASSWORD}
+      TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
+    volumes:
+      - .:/workspace:cached
+      - maven-cache:/home/ubuntu/.m2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+volumes:
+  maven-cache:
