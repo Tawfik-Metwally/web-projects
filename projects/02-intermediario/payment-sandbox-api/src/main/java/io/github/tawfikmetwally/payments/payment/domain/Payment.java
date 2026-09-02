@@ -78,6 +78,34 @@ public final class Payment {
                 updatedAt);
     }
 
+    public void approve(Instant occurredAt) {
+        transitionTo(PaymentStatus.PENDING, PaymentStatus.APPROVED, occurredAt);
+    }
+
+    public void decline(Instant occurredAt) {
+        transitionTo(PaymentStatus.PENDING, PaymentStatus.DECLINED, occurredAt);
+    }
+
+    public void refund(Instant occurredAt) {
+        transitionTo(PaymentStatus.APPROVED, PaymentStatus.REFUNDED, occurredAt);
+    }
+
+    private void transitionTo(
+            PaymentStatus expectedCurrentStatus,
+            PaymentStatus targetStatus,
+            Instant occurredAt) {
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (occurredAt.isBefore(updatedAt)) {
+            throw new IllegalArgumentException("occurredAt must not be before updatedAt");
+        }
+        if (status != expectedCurrentStatus) {
+            throw new InvalidPaymentStateTransitionException(status, targetStatus);
+        }
+
+        status = targetStatus;
+        updatedAt = occurredAt;
+    }
+
     private static String requireText(String value, String fieldName, int maxLength) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(fieldName + " must not be blank");
