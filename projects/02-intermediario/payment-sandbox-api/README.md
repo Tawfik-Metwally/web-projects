@@ -4,7 +4,22 @@ A containerized REST API for simulating payment creation, queries, idempotency, 
 
 ## Status
 
-The project is under active development. The Spring Boot scaffolding, PostgreSQL, Keycloak, Dev Container, and Testcontainers foundation are available; payment endpoints are not implemented yet.
+The project is under active development. The persistence model, payment domain, and initial `POST /api/v1/payments` controller and service are implemented. The service coordinates deterministic approval or decline and saves the payment with its creation and decision events within a Spring transaction.
+
+This is not a production-ready payment API. Persistent idempotency and concurrency handling, JWT validation and merchant identity mapping, query and refund endpoints, and standardized error responses are still pending. `Idempotency-Key` is currently validated and transported, but does not prevent duplicate payments yet. Existing Spring Security defaults remain in place; a real Bearer-token flow is not configured yet.
+
+## Current verification
+
+The latest full test run passed 59 tests:
+
+- 23 domain tests and 12 request-validation tests;
+- 2 domain/persistence mapping tests and 2 service tests with mocked repositories;
+- 14 Spring MVC controller tests with a mocked service and test authentication;
+- 4 PostgreSQL persistence integration tests and 2 application context/health tests.
+
+Controller tests verify request mapping, exact service arguments, validation, and HTTP responses. They do not establish end-to-end HTTP-to-database behavior, real JWT validation, or transactional rollback against PostgreSQL. These checks remain planned.
+
+For a new payment, the controller returns `201 Created` and a `Location` header, including when the financial result is `DECLINED`. It can also translate a service-reported replay into `200 OK` with `Idempotency-Replayed: true`; that branch is currently exercised with a mock, not real idempotency. The query route advertised by `Location` is not implemented yet.
 
 ## Stack
 
@@ -28,11 +43,10 @@ Prepare the local environment file and replace every placeholder value:
 cp .env.example .env
 ```
 
-Open the project in VS Code and run **Dev Containers: Reopen in Container**. Inside the Dev Container, verify the current foundation with:
+Open the project in VS Code and run **Dev Containers: Reopen in Container**. Inside the Dev Container, run the test suite with:
 
 ```bash
 ./mvnw test
 ```
 
 Local secrets, generated files, and private project notes are excluded from version control.
-

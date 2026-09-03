@@ -1,5 +1,7 @@
 package io.github.tawfikmetwally.payments.payment.infrastructure.persistence;
 
+import io.github.tawfikmetwally.payments.payment.domain.Money;
+import io.github.tawfikmetwally.payments.payment.domain.Payment;
 import io.github.tawfikmetwally.payments.payment.domain.PaymentStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -10,6 +12,8 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import java.time.Instant;
+import java.util.Currency;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -63,6 +67,33 @@ public class PaymentEntity {
         this.status = status;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+    }
+
+    public static PaymentEntity fromDomain(Payment payment) {
+        Objects.requireNonNull(payment, "payment must not be null");
+
+        return new PaymentEntity(
+                payment.getId(),
+                payment.getMerchantId(),
+                payment.getMerchantReference(),
+                payment.getMoney().amountMinor(),
+                payment.getMoney().currency().getCurrencyCode(),
+                payment.getStatus(),
+                payment.getCreatedAt(),
+                payment.getUpdatedAt());
+    }
+
+    public Payment toDomain() {
+        Money money = new Money(amountMinor, Currency.getInstance(currency));
+
+        return Payment.restore(
+                id,
+                merchantId,
+                merchantReference,
+                money,
+                status,
+                createdAt,
+                updatedAt);
     }
 
     public UUID getId() {
