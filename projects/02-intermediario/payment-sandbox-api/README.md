@@ -10,7 +10,7 @@ This is not a production-ready payment API. Persistent idempotency and concurren
 
 ## Current verification
 
-The latest full test run passed 59 tests:
+The latest full test run, after the technical-layer package reorganization, passed 59 tests:
 
 - 23 domain tests and 12 request-validation tests;
 - 2 domain/persistence mapping tests and 2 service tests with mocked repositories;
@@ -20,6 +20,33 @@ The latest full test run passed 59 tests:
 Controller tests verify request mapping, exact service arguments, validation, and HTTP responses. They do not establish end-to-end HTTP-to-database behavior, real JWT validation, or transactional rollback against PostgreSQL. These checks remain planned.
 
 For a new payment, the controller returns `201 Created` and a `Location` header, including when the financial result is `DECLINED`. It can also translate a service-reported replay into `200 OK` with `Idempotency-Replayed: true`; that branch is currently exercised with a mock, not real idempotency. The query route advertised by `Location` is not implemented yet.
+
+The reorganized packages were validated with `./mvnw clean test`: 59 tests, no failures, errors, or skipped tests. The clean build removes compiled classes from the old package locations.
+
+## Code organization
+
+The application uses technical-layer packages under `io.github.tawfikmetwally.payments`:
+
+```text
+payments
+|-- PaymentSandboxApiApplication.java
+|-- config
+|-- controller
+|-- service          services and their Command/Result contracts
+|-- dto
+|   |-- request      HTTP request bodies
+|   `-- response     HTTP response bodies
+|-- entity           JPA persistence mappings
+|-- repository       Spring Data repositories
+|-- enums
+|-- exception
+|-- domain           Payment and Money business rules
+`-- simulator        deterministic provider simulation
+```
+
+`Payment` remains separate from `PaymentEntity`; this package arrangement does not merge business rules with persistence mappings. Security-specific packages will be added when the JWT integration is implemented.
+
+Tests live in `src/test/java` and mirror the package of the component they test. Application tests, cross-repository persistence integration tests, and shared Testcontainers support remain in the base package. JUnit runs the tests, Mockito replaces selected dependencies, and AssertJ checks results.
 
 ## Stack
 

@@ -3,18 +3,6 @@ package io.github.tawfikmetwally.payments;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import io.github.tawfikmetwally.payments.idempotency.domain.IdempotencyOperation;
-import io.github.tawfikmetwally.payments.idempotency.infrastructure.persistence.IdempotencyRecordEntity;
-import io.github.tawfikmetwally.payments.idempotency.infrastructure.persistence.IdempotencyRecordJpaRepository;
-import io.github.tawfikmetwally.payments.payment.domain.PaymentEventType;
-import io.github.tawfikmetwally.payments.payment.domain.PaymentStatus;
-import io.github.tawfikmetwally.payments.payment.infrastructure.persistence.PaymentEntity;
-import io.github.tawfikmetwally.payments.payment.infrastructure.persistence.PaymentEventEntity;
-import io.github.tawfikmetwally.payments.payment.infrastructure.persistence.PaymentEventJpaRepository;
-import io.github.tawfikmetwally.payments.payment.infrastructure.persistence.PaymentJpaRepository;
-import io.github.tawfikmetwally.payments.refund.domain.RefundStatus;
-import io.github.tawfikmetwally.payments.refund.infrastructure.persistence.RefundEntity;
-import io.github.tawfikmetwally.payments.refund.infrastructure.persistence.RefundJpaRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -23,6 +11,19 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+
+import io.github.tawfikmetwally.payments.entity.IdempotencyRecordEntity;
+import io.github.tawfikmetwally.payments.entity.PaymentEntity;
+import io.github.tawfikmetwally.payments.entity.PaymentEventEntity;
+import io.github.tawfikmetwally.payments.entity.RefundEntity;
+import io.github.tawfikmetwally.payments.enums.IdempotencyOperation;
+import io.github.tawfikmetwally.payments.enums.PaymentEventType;
+import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import io.github.tawfikmetwally.payments.enums.RefundStatus;
+import io.github.tawfikmetwally.payments.repository.IdempotencyRecordJpaRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
+import io.github.tawfikmetwally.payments.repository.RefundJpaRepository;
 
 @Import(TestcontainersConfiguration.class)
 @DataJpaTest
