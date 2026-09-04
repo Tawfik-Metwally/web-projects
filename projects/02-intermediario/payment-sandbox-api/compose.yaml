@@ -24,12 +24,14 @@ services:
       APP_DB_NAME: ${APP_DB_NAME}
       APP_DB_USER: ${APP_DB_USER}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      DEMO_DB_PASSWORD: ${DEMO_DB_PASSWORD:-}
       KEYCLOAK_DB_NAME: ${KEYCLOAK_DB_NAME}
       KEYCLOAK_DB_USER: ${KEYCLOAK_DB_USER}
       KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./docker/postgres/init-multiple-databases.sh:/docker-entrypoint-initdb.d/10-init-multiple-databases.sh:ro
+      - ./docker/postgres/init-demo-database.sh:/opt/payment-sandbox/init-demo-database.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s

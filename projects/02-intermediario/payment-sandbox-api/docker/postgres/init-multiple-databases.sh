@@ -23,3 +23,9 @@ WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'keycloak_user') \gexec
 SELECT format('CREATE DATABASE %I OWNER %I', :'keycloak_database', :'keycloak_user')
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'keycloak_database') \gexec
 SQL
+
+# Also prepare the optional demo database on a fresh PostgreSQL volume.
+# Existing volumes require an explicit invocation of this separate script.
+if [ -n "${DEMO_DB_PASSWORD:-}" ]; then
+  sh /opt/payment-sandbox/init-demo-database.sh
+fi

@@ -8,9 +8,10 @@ services:
       context: .
       dockerfile: .devcontainer/Dockerfile
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${APP_DB_NAME}
-      SPRING_DATASOURCE_USERNAME: ${APP_DB_USER}
-      SPRING_DATASOURCE_PASSWORD: ${APP_DB_PASSWORD}
+      APP_DB_URL: jdbc:postgresql://postgres:5432/${APP_DB_NAME}
+      APP_DB_USER: ${APP_DB_USER}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      DEMO_DB_PASSWORD: ${DEMO_DB_PASSWORD:-}
       TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
     volumes:
       - .:/workspace:cached
