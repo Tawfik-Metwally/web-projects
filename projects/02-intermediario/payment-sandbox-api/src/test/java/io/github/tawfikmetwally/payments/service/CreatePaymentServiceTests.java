@@ -2,200 +2,119 @@ package io.github.tawfikmetwally.payments.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.Currency;
-import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
-import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DataIntegrityViolationException;
 
-import io.github.tawfikmetwally.payments.entity.IdempotencyRecordEntity;
-import io.github.tawfikmetwally.payments.entity.PaymentEntity;
-import io.github.tawfikmetwally.payments.entity.PaymentEventEntity;
-import io.github.tawfikmetwally.payments.enums.IdempotencyOperation;
-import io.github.tawfikmetwally.payments.enums.PaymentEventType;
+import io.github.tawfikmetwally.payments.domain.Money;
+import io.github.tawfikmetwally.payments.domain.Payment;
 import io.github.tawfikmetwally.payments.enums.PaymentStatus;
-import io.github.tawfikmetwally.payments.exception.IdempotencyConflictException;
-import io.github.tawfikmetwally.payments.repository.IdempotencyRecordJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
-import io.github.tawfikmetwally.payments.simulator.DeterministicPaymentSimulator;
 
 class CreatePaymentServiceTests {
 
     private static final Instant NOW = Instant.parse("2026-09-03T18:00:00Z");
     private static final Currency BRL = Currency.getInstance("BRL");
+    private static final String IDEMPOTENCY_CONSTRAINT =
+            "uq_idempotency_records_merchant_operation_key";
 
-    private PaymentJpaRepository paymentRepository;
-    private PaymentEventJpaRepository paymentEventRepository;
-    private IdempotencyRecordJpaRepository idempotencyRecordRepository;
-    private DeterministicPaymentSimulator paymentSimulator;
-    private final CreatePaymentRequestHasher requestHasher = new CreatePaymentRequestHasher();
+    private CreatePaymentTransaction paymentTransaction;
+    private CreatePaymentRequestHasher requestHasher;
     private CreatePaymentService service;
 
     @BeforeEach
     void setUp() {
-        paymentRepository = mock(PaymentJpaRepository.class);
-        paymentEventRepository = mock(PaymentEventJpaRepository.class);
-        idempotencyRecordRepository = mock(IdempotencyRecordJpaRepository.class);
-        paymentSimulator = spy(new DeterministicPaymentSimulator());
-        when(paymentRepository.save(any(PaymentEntity.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        service = new CreatePaymentService(
-                paymentRepository,
-                paymentEventRepository,
-                idempotencyRecordRepository,
-                requestHasher,
-                paymentSimulator,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+        paymentTransaction = mock(CreatePaymentTransaction.class);
+        requestHasher = new CreatePaymentRequestHasher();
+        service = new CreatePaymentService(paymentTransaction, requestHasher);
     }
 
     @Test
-    void createsApprovedPaymentAndItsHistory() {
-        CreatePaymentResult result = service.create(command("tok_approved"));
-
-        assertThat(result.payment().getStatus()).isEqualTo(PaymentStatus.APPROVED);
-        assertThat(result.payment().getMoney().amountMinor()).isEqualTo(10_000);
-        assertThat(result.replayed()).isFalse();
-        assertPersistedHistory(
-                PaymentEventType.PAYMENT_APPROVED,
-                PaymentStatus.APPROVED);
-        assertPersistedIdempotency(command("tok_approved"), result);
-        verify(paymentSimulator).decide("tok_approved");
-    }
-
-    @Test
-    void createsDeclinedPaymentAndItsHistory() {
-        CreatePaymentResult result = service.create(command("tok_declined"));
-
-        assertThat(result.payment().getStatus()).isEqualTo(PaymentStatus.DECLINED);
-        assertThat(result.replayed()).isFalse();
-        assertPersistedHistory(
-                PaymentEventType.PAYMENT_DECLINED,
-                PaymentStatus.DECLINED);
-        assertPersistedIdempotency(command("tok_declined"), result);
-        verify(paymentSimulator).decide("tok_declined");
-    }
-
-    @ParameterizedTest
-    @CsvSource({ "tok_approved, APPROVED", "tok_declined, DECLINED" })
-    void replaysExistingPaymentWithoutProcessingOrWritingAgain(
-            String token, PaymentStatus status) {
-        CreatePaymentCommand command = command(token);
-        IdempotencyRecordEntity record = existingRecord(command, status);
-        when(idempotencyRecordRepository.findByMerchantIdAndOperationTypeAndIdempotencyKey(
-                command.merchantId(), IdempotencyOperation.CREATE_PAYMENT, command.idempotencyKey()))
-                .thenReturn(Optional.of(record));
+    void returnsResultFromSuccessfulTransaction() {
+        CreatePaymentCommand command = command();
+        String requestHash = requestHasher.hash(command);
+        CreatePaymentResult created = new CreatePaymentResult(
+                payment(PaymentStatus.APPROVED), false);
+        when(paymentTransaction.execute(command, requestHash)).thenReturn(created);
 
         CreatePaymentResult result = service.create(command);
 
-        assertThat(result.replayed()).isTrue();
-        assertThat(result.payment()).usingRecursiveComparison()
-                .isEqualTo(record.getPayment().toDomain());
-        verifyNoInteractions(paymentSimulator, paymentRepository, paymentEventRepository);
-        verify(idempotencyRecordRepository).findByMerchantIdAndOperationTypeAndIdempotencyKey(
-                command.merchantId(), IdempotencyOperation.CREATE_PAYMENT, command.idempotencyKey());
-        verifyNoMoreInteractions(idempotencyRecordRepository);
+        assertThat(result).isSameAs(created);
+        verify(paymentTransaction).execute(command, requestHash);
+        verifyNoMoreInteractions(paymentTransaction);
     }
 
     @Test
-    void rejectsChangedDataWithoutProcessingOrWritingAgain() {
-        IdempotencyRecordEntity record = existingRecord(command("tok_approved"), PaymentStatus.APPROVED);
-        CreatePaymentCommand changedCommand = command("tok_declined");
-        when(idempotencyRecordRepository.findByMerchantIdAndOperationTypeAndIdempotencyKey(
-                changedCommand.merchantId(), IdempotencyOperation.CREATE_PAYMENT,
-                changedCommand.idempotencyKey()))
-                .thenReturn(Optional.of(record));
+    void replaysWinnerAfterIdempotencyConstraintConflict() {
+        CreatePaymentCommand command = command();
+        String requestHash = requestHasher.hash(command);
+        DataIntegrityViolationException databaseException =
+                databaseException(IDEMPOTENCY_CONSTRAINT);
+        CreatePaymentResult replayed = new CreatePaymentResult(
+                payment(PaymentStatus.APPROVED), true);
+        when(paymentTransaction.execute(command, requestHash))
+                .thenThrow(databaseException);
+        when(paymentTransaction.replay(command, requestHash)).thenReturn(replayed);
 
-        assertThatThrownBy(() -> service.create(changedCommand))
-                .isInstanceOf(IdempotencyConflictException.class);
+        CreatePaymentResult result = service.create(command);
 
-        verifyNoInteractions(paymentSimulator, paymentRepository, paymentEventRepository);
-        verify(idempotencyRecordRepository).findByMerchantIdAndOperationTypeAndIdempotencyKey(
-                changedCommand.merchantId(), IdempotencyOperation.CREATE_PAYMENT,
-                changedCommand.idempotencyKey());
-        verifyNoMoreInteractions(idempotencyRecordRepository);
+        assertThat(result).isSameAs(replayed);
+        verify(paymentTransaction).execute(command, requestHash);
+        verify(paymentTransaction).replay(command, requestHash);
+        verifyNoMoreInteractions(paymentTransaction);
     }
 
-    private IdempotencyRecordEntity existingRecord(CreatePaymentCommand command, PaymentStatus status) {
-        Instant createdAt = NOW.minusSeconds(300);
-        PaymentEntity payment = new PaymentEntity(
-                UUID.randomUUID(), command.merchantId(), command.merchantReference(),
-                command.amountMinor(), command.currency().getCurrencyCode(), status,
-                createdAt, createdAt);
+    @Test
+    void propagatesViolationFromAnotherDatabaseConstraint() {
+        CreatePaymentCommand command = command();
+        String requestHash = requestHasher.hash(command);
+        DataIntegrityViolationException databaseException =
+                databaseException("ck_payments_amount_positive");
+        when(paymentTransaction.execute(command, requestHash))
+                .thenThrow(databaseException);
 
-        return new IdempotencyRecordEntity(
-                UUID.randomUUID(), command.merchantId(), IdempotencyOperation.CREATE_PAYMENT,
-                command.idempotencyKey(), requestHasher.hash(command), payment, createdAt);
+        assertThatThrownBy(() -> service.create(command))
+                .isSameAs(databaseException);
+
+        verify(paymentTransaction).execute(command, requestHash);
+        verifyNoMoreInteractions(paymentTransaction);
     }
 
-    private void assertPersistedIdempotency(CreatePaymentCommand command, CreatePaymentResult result) {
-        ArgumentCaptor<IdempotencyRecordEntity> captor =
-                ArgumentCaptor.forClass(IdempotencyRecordEntity.class);
-        verify(idempotencyRecordRepository).findByMerchantIdAndOperationTypeAndIdempotencyKey(
-                command.merchantId(), IdempotencyOperation.CREATE_PAYMENT, command.idempotencyKey());
-        verify(idempotencyRecordRepository).save(captor.capture());
-        verifyNoMoreInteractions(idempotencyRecordRepository);
-
-        IdempotencyRecordEntity record = captor.getValue();
-        assertThat(record.getId()).isNotNull();
-        assertThat(record.getMerchantId()).isEqualTo(command.merchantId());
-        assertThat(record.getOperationType()).isEqualTo(IdempotencyOperation.CREATE_PAYMENT);
-        assertThat(record.getIdempotencyKey()).isEqualTo(command.idempotencyKey());
-        assertThat(record.getRequestHash()).isEqualTo(requestHasher.hash(command));
-        assertThat(record.getPayment().getId()).isEqualTo(result.payment().getId());
-        assertThat(record.getCreatedAt()).isEqualTo(NOW);
+    private DataIntegrityViolationException databaseException(String constraintName) {
+        ConstraintViolationException constraintViolation =
+                mock(ConstraintViolationException.class);
+        when(constraintViolation.getConstraintName()).thenReturn(constraintName);
+        return new DataIntegrityViolationException(
+                "Database constraint violation", constraintViolation);
     }
 
-    private CreatePaymentCommand command(String token) {
+    private CreatePaymentCommand command() {
         return new CreatePaymentCommand(
                 "merchant-a",
                 "idem-123",
                 10_000,
                 BRL,
                 "ORDER-123",
-                token);
+                "tok_approved");
     }
 
-    private void assertPersistedHistory(
-            PaymentEventType decisionEventType,
-            PaymentStatus finalStatus) {
-        ArgumentCaptor<PaymentEntity> paymentCaptor =
-                ArgumentCaptor.forClass(PaymentEntity.class);
-        verify(paymentRepository).save(paymentCaptor.capture());
-        assertThat(paymentCaptor.getValue().getStatus()).isEqualTo(finalStatus);
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<PaymentEventEntity>> eventsCaptor =
-                ArgumentCaptor.forClass(List.class);
-        verify(paymentEventRepository).saveAll(eventsCaptor.capture());
-
-        assertThat(eventsCaptor.getValue())
-                .extracting(PaymentEventEntity::getEventType)
-                .containsExactly(
-                        PaymentEventType.PAYMENT_CREATED,
-                        decisionEventType);
-        assertThat(eventsCaptor.getValue())
-                .extracting(PaymentEventEntity::getFromStatus)
-                .containsExactly(null, PaymentStatus.PENDING);
-        assertThat(eventsCaptor.getValue())
-                .extracting(PaymentEventEntity::getToStatus)
-                .containsExactly(PaymentStatus.PENDING, finalStatus);
+    private Payment payment(PaymentStatus status) {
+        return Payment.restore(
+                UUID.randomUUID(),
+                "merchant-a",
+                "ORDER-123",
+                new Money(10_000, BRL),
+                status,
+                NOW,
+                NOW);
     }
 }
