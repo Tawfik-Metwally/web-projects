@@ -30,6 +30,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import io.github.tawfikmetwally.payments.domain.Money;
 import io.github.tawfikmetwally.payments.domain.Payment;
 import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import io.github.tawfikmetwally.payments.exception.IdempotencyConflictException;
 import io.github.tawfikmetwally.payments.exception.UnsupportedPaymentMethodTokenException;
 import io.github.tawfikmetwally.payments.service.CreatePaymentCommand;
 import io.github.tawfikmetwally.payments.service.CreatePaymentResult;
@@ -171,6 +172,23 @@ class PaymentControllerTests {
                         .header("Idempotency-Key", IDEMPOTENCY_KEY)
                         .content(body(10_000L, "BRL", "tok_unknown")))
                 .andExpect(status().isBadRequest());
+
+        verify(createPaymentService).create(expectedCommand);
+        verifyNoMoreInteractions(createPaymentService);
+    }
+
+    @Test
+    void returnsConflictWhenServiceRejectsReusedKeyWithDifferentData() throws Exception {
+        CreatePaymentCommand expectedCommand = command("tok_declined");
+        when(createPaymentService.create(expectedCommand))
+                .thenThrow(new IdempotencyConflictException());
+
+        mockMvc.perform(authenticatedRequest()
+                        .header("Idempotency-Key", IDEMPOTENCY_KEY)
+                        .content(body(10_000L, "BRL", "tok_declined")))
+                .andExpect(status().isConflict())
+                .andExpect(header().doesNotExist("Location"))
+                .andExpect(header().doesNotExist("Idempotency-Replayed"));
 
         verify(createPaymentService).create(expectedCommand);
         verifyNoMoreInteractions(createPaymentService);

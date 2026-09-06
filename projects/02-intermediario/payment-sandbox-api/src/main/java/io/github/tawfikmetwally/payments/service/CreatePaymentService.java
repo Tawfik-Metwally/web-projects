@@ -10,11 +10,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import io.github.tawfikmetwally.payments.domain.Money;
 import io.github.tawfikmetwally.payments.domain.Payment;
+import io.github.tawfikmetwally.payments.entity.IdempotencyRecordEntity;
 import io.github.tawfikmetwally.payments.entity.PaymentEntity;
 import io.github.tawfikmetwally.payments.entity.PaymentEventEntity;
+import io.github.tawfikmetwally.payments.enums.IdempotencyOperation;
 import io.github.tawfikmetwally.payments.enums.PaymentDecision;
 import io.github.tawfikmetwally.payments.enums.PaymentEventType;
 import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import io.github.tawfikmetwally.payments.exception.IdempotencyConflictException;
+import io.github.tawfikmetwally.payments.repository.IdempotencyRecordJpaRepository;
 import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
 import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
 import io.github.tawfikmetwally.payments.simulator.DeterministicPaymentSimulator;
@@ -24,22 +28,39 @@ public class CreatePaymentService {
 
     private final PaymentJpaRepository paymentRepository;
     private final PaymentEventJpaRepository paymentEventRepository;
+    private final IdempotencyRecordJpaRepository idempotencyRecordRepository;
+    private final CreatePaymentRequestHasher requestHasher;
     private final DeterministicPaymentSimulator paymentSimulator;
     private final Clock clock;
 
     public CreatePaymentService(
             PaymentJpaRepository paymentRepository,
             PaymentEventJpaRepository paymentEventRepository,
+            IdempotencyRecordJpaRepository idempotencyRecordRepository,
+            CreatePaymentRequestHasher requestHasher,
             DeterministicPaymentSimulator paymentSimulator,
             Clock clock) {
         this.paymentRepository = paymentRepository;
         this.paymentEventRepository = paymentEventRepository;
+        this.idempotencyRecordRepository = idempotencyRecordRepository;
+        this.requestHasher = requestHasher;
         this.paymentSimulator = paymentSimulator;
         this.clock = clock;
     }
 
     @Transactional
     public CreatePaymentResult create(CreatePaymentCommand command) {
+        String requestHash = requestHasher.hash(command);
+        var existingRecord = idempotencyRecordRepository
+                .findByMerchantIdAndOperationTypeAndIdempotencyKey(
+                        command.merchantId(),
+                        IdempotencyOperation.CREATE_PAYMENT,
+                        command.idempotencyKey());
+
+        if (existingRecord.isPresent()) {
+            return replay(existingRecord.get(), requestHash);
+        }
+
         Instant occurredAt = clock.instant();
         Payment payment = Payment.create(
                 UUID.randomUUID(),
@@ -56,7 +77,24 @@ public class CreatePaymentService {
                 createdEvent(paymentEntity, occurredAt),
                 decisionEvent(paymentEntity, decision, occurredAt)));
 
+        idempotencyRecordRepository.save(new IdempotencyRecordEntity(
+                UUID.randomUUID(),
+                command.merchantId(),
+                IdempotencyOperation.CREATE_PAYMENT,
+                command.idempotencyKey(),
+                requestHash,
+                paymentEntity,
+                occurredAt));
+
         return new CreatePaymentResult(payment, false);
+    }
+
+    private CreatePaymentResult replay(IdempotencyRecordEntity record, String requestHash) {
+        if (!record.getRequestHash().equals(requestHash)) {
+            throw new IdempotencyConflictException();
+        }
+
+        return new CreatePaymentResult(record.getPayment().toDomain(), true);
     }
 
     private void applyDecision(Payment payment, PaymentDecision decision, Instant occurredAt) {

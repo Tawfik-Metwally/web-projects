@@ -22,6 +22,7 @@ import jakarta.validation.constraints.Size;
 import io.github.tawfikmetwally.payments.domain.Payment;
 import io.github.tawfikmetwally.payments.dto.request.CreatePaymentRequest;
 import io.github.tawfikmetwally.payments.dto.response.PaymentResponse;
+import io.github.tawfikmetwally.payments.exception.IdempotencyConflictException;
 import io.github.tawfikmetwally.payments.exception.UnsupportedPaymentMethodTokenException;
 import io.github.tawfikmetwally.payments.service.CreatePaymentCommand;
 import io.github.tawfikmetwally.payments.service.CreatePaymentResult;
@@ -95,5 +96,10 @@ public class PaymentController {
     @ExceptionHandler(UnsupportedPaymentMethodTokenException.class)
     public ResponseEntity<Void> handleUnsupportedPaymentMethodToken() {
         return ResponseEntity.badRequest().build();
+    }
+
+    @ExceptionHandler(IdempotencyConflictException.class)
+    public ResponseEntity<Void> handleIdempotencyConflict() {
+        return ResponseEntity.status(HttpStatus.CONFLICT).build();
     }
 }
