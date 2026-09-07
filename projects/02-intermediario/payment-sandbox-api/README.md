@@ -4,24 +4,25 @@ A containerized REST API for simulating payment creation, queries, idempotency, 
 
 ## Status
 
-The project is under active development. The persistence model, payment domain, and initial `POST /api/v1/payments` controller and service are implemented. The service coordinates deterministic approval or decline and saves the payment with its creation and decision events within a Spring transaction.
+The project is under active development. The persistence model, payment domain, and `POST /api/v1/payments` flow are implemented. The service coordinates deterministic approval or decline and saves the payment, its creation and decision events, and the idempotency record within transactional boundaries.
 
-This is not a production-ready payment API. Persistent idempotency and concurrency handling, JWT validation and merchant identity mapping, query and refund endpoints, and standardized error responses are still pending. `Idempotency-Key` is currently validated and transported, but does not prevent duplicate payments yet. Existing Spring Security defaults remain in place; a real Bearer-token flow is not configured yet.
+Persistent idempotency is enforced per merchant, operation, and key. An identical retry returns the existing payment, a changed request with the same key returns HTTP 409, and concurrent requests recover the winning transaction after the losing transaction rolls back. This is not a production-ready payment API: JWT validation and real merchant identity mapping, query and refund endpoints, and standardized error responses are still pending.
 
 ## Current verification
 
-The latest full test run, after the demo-infrastructure preparation, passed 59 tests:
+The latest clean build passed 83 tests with no failures, errors, or skipped tests:
 
-- 23 domain tests and 12 request-validation tests;
-- 2 domain/persistence mapping tests and 2 service tests with mocked repositories;
-- 14 Spring MVC controller tests with a mocked service and test authentication;
-- 4 PostgreSQL persistence integration tests and 2 application context/health tests.
+- domain, simulator, request-validation, mapping, hashing, service, and transaction tests;
+- Spring MVC controller tests with mocked service dependencies;
+- demo-profile security tests for missing, invalid, and valid merchant headers;
+- PostgreSQL persistence tests with Testcontainers;
+- full application integration tests for creation, replay, conflict, and concurrent idempotency.
 
-Controller tests verify request mapping, exact service arguments, validation, and HTTP responses. They do not establish end-to-end HTTP-to-database behavior, real JWT validation, or transactional rollback against PostgreSQL. These checks remain planned.
+The integration suite connects the HTTP layer, demo identity filter, controller, service, domain, repositories, Hibernate, and temporary PostgreSQL. The concurrent test forces two transactions to compete for the real unique constraint and verifies one HTTP 201 response, one replayed HTTP 200 response, and final persisted counts of one payment, two events, and one idempotency record. These tests do not establish real JWT validation.
 
-For a new payment, the controller returns `201 Created` and a `Location` header, including when the financial result is `DECLINED`. It can also translate a service-reported replay into `200 OK` with `Idempotency-Replayed: true`; that branch is currently exercised with a mock, not real idempotency. The query route advertised by `Location` is not implemented yet.
+For a new payment, the controller returns `201 Created` and a `Location` header, including when the financial result is `DECLINED`. An identical retry returns `200 OK` with `Idempotency-Replayed: true`; changed content under the same key returns `409 Conflict`. The query route advertised by `Location` is not implemented yet.
 
-The reorganized packages were validated with `./mvnw clean test`: 59 tests, no failures, errors, or skipped tests. The clean build removes compiled classes from the old package locations.
+The same create, replay, and conflict flow was also verified manually with Postman against the persistent `payments_demo` database. DBeaver confirmed that only HTTP 201 requests created rows and that each created payment has exactly two events and one idempotency record.
 
 ## Code organization
 
@@ -40,11 +41,12 @@ payments
 |-- repository       Spring Data repositories
 |-- enums
 |-- exception
+|-- security         explicit local demo identity filter
 |-- domain           Payment and Money business rules
 `-- simulator        deterministic provider simulation
 ```
 
-`Payment` remains separate from `PaymentEntity`; this package arrangement does not merge business rules with persistence mappings. Security-specific packages will be added when the JWT integration is implemented.
+`Payment` remains separate from `PaymentEntity`; this package arrangement does not merge business rules with persistence mappings. The current `security` package contains only the explicit local demonstration filter. Real JWT resource-server configuration remains pending.
 
 Tests live in `src/test/java` and mirror the package of the component they test. Application tests, cross-repository persistence integration tests, and shared Testcontainers support remain in the base package. JUnit runs the tests, Mockito replaces selected dependencies, and AssertJ checks results.
 
@@ -142,22 +144,54 @@ Choose the database when starting Spring Boot inside the **Dev Container**:
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
 ```
 
+For local Postman verification before the real JWT phase, activate the separate,
+explicit `demo-no-auth` profile together with `demo`:
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=demo,demo-no-auth
+```
+
 Stop the running application with **Ctrl+C** before switching. Subsequent switches
 do not require container rebuilds. The demo profile changes the datasource only:
-it does not disable security, enable JWT, or clear any data. A demo reset command
-and manual Postman authentication are not implemented yet.
+it does not disable security, enable JWT, or clear any data. The separate
+`demo-no-auth` profile installs a stateless filter that accepts
+`X-Demo-Merchant-Id` and exposes it as the `Principal` expected by the controller.
+This header is untrusted demonstration input, not authentication, and must never
+be enabled as a production security mechanism.
+
+Example local creation request:
+
+```http
+POST http://localhost:8080/api/v1/payments
+X-Demo-Merchant-Id: merchant-demo
+Idempotency-Key: payment-demo-001
+Accept: application/json
+Content-Type: application/json
+```
+
+```json
+{
+  "amount": 10000,
+  "currency": "BRL",
+  "merchantReference": "ORDER-DEMO-001",
+  "paymentMethodToken": "tok_approved"
+}
+```
+
+The first request returns HTTP 201. Repeating the same request returns HTTP 200
+with `Idempotency-Replayed: true`; changing the content while keeping the same key
+returns HTTP 409.
 
 This profile workflow targets `dev`, not the packaged `api` service, which still
 uses explicit `SPRING_DATASOURCE_*` variables. Do not set those variables in the
 Dev Container: they take precedence over profile files. Tests continue to use
 Testcontainers connection details; do not activate `demo` for the test suite.
 
-The demo profile was validated manually against `payments_demo`: Flyway applied
-V1, Hibernate accepted the schema, and `psql` confirmed the five tables and their
-owner. An unauthenticated Postman request returned 401 and persisted no payment.
-Afterward, the regular `./mvnw clean test` suite passed all 59 tests. Automated
-authenticated HTTP-to-demo-database verification remains deferred until the JWT
-integration.
+The demo profiles were validated manually against `payments_demo`: Flyway applied
+V1, Hibernate accepted the schema, and Postman verified HTTP 201 creation, HTTP 200
+replay, and HTTP 409 conflict. PostgreSQL and DBeaver confirmed that replay and
+conflict do not duplicate persisted data. The clean test suite then passed all 83
+tests. Real authenticated HTTP verification remains deferred until JWT integration.
 
 ### Addresses and current limitations
 
@@ -167,9 +201,14 @@ With Spring Boot running and port 8080 forwarded by VS Code:
 - health endpoint: [localhost:8080/actuator/health](http://localhost:8080/actuator/health);
 - Keycloak administration: [localhost:8180](http://localhost:8180), using the local administrator credentials configured in `.env`.
 
-PostgreSQL is reachable inside the Compose network at `postgres:5432`; its port is not published to the host. Database names and credentials come from `.env`.
+PostgreSQL is reachable inside the Compose network at `postgres:5432`. When the
+development override is active, it is also bound only to `127.0.0.1:5432` on the
+host for local tools such as DBeaver. The base Compose file does not publish the
+database port. Database names and credentials come from `.env`; use the dedicated
+`payments_demo` role and `DEMO_DB_PASSWORD` when connecting DBeaver to the
+`payments_demo` database.
 
-Health reports application health, not completion of all payment features. `POST /api/v1/payments` is not a browser GET page. Default Spring Security behavior remains active, and the Keycloak login is separate from API authentication. Obtaining a Keycloak token does not yet enable a working JWT payment flow. Queries, refunds, persistent idempotency, and real JWT configuration remain pending.
+Health reports application health, not completion of all payment features. `POST /api/v1/payments` is not a browser GET page. Outside the explicit `demo-no-auth` profile, Spring Security defaults remain active, and the Keycloak login is separate from API authentication. Obtaining a Keycloak token does not yet enable a working JWT payment flow. Query endpoints, refunds, and real JWT configuration remain pending.
 
 ### Run tests
 
@@ -194,6 +233,8 @@ Select one test class; each line below is an independent command:
 ./mvnw '-Dtest=CreatePaymentServiceTests' test
 ./mvnw '-Dtest=PaymentControllerTests' test
 ./mvnw '-Dtest=PersistenceIntegrationTests' test
+./mvnw '-Dtest=DemoSecurityConfigurationTests' test
+./mvnw '-Dtest=PaymentCreationIntegrationTests' test
 ```
 
 Select only the merchant-isolation test:
@@ -204,7 +245,7 @@ Select only the merchant-isolation test:
 
 Domain tests check rules without mocks. Service tests mock repositories, controller tests mock the service, and persistence integration tests use a real temporary database. Selecting tests limits execution; Maven may still compile other sources.
 
-Check both `BUILD SUCCESS` and `Tests run / Failures / Errors / Skipped`. Per-class summaries appear in the terminal; detailed reports are generated in `target/surefire-reports/`. The latest validated full suite contains 59 test executions.
+Check both `BUILD SUCCESS` and `Tests run / Failures / Errors / Skipped`. Per-class summaries appear in the terminal; detailed reports are generated in `target/surefire-reports/`. The latest validated full suite contains 83 test executions.
 
 ### Stop the development environment
 
