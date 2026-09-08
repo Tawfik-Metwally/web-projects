@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -14,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 import java.util.Currency;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -31,10 +33,15 @@ import io.github.tawfikmetwally.payments.domain.Money;
 import io.github.tawfikmetwally.payments.domain.Payment;
 import io.github.tawfikmetwally.payments.enums.PaymentStatus;
 import io.github.tawfikmetwally.payments.exception.IdempotencyConflictException;
+import io.github.tawfikmetwally.payments.exception.PaymentNotFoundException;
 import io.github.tawfikmetwally.payments.exception.UnsupportedPaymentMethodTokenException;
 import io.github.tawfikmetwally.payments.service.CreatePaymentCommand;
 import io.github.tawfikmetwally.payments.service.CreatePaymentResult;
 import io.github.tawfikmetwally.payments.service.CreatePaymentService;
+import io.github.tawfikmetwally.payments.service.GetPaymentService;
+import io.github.tawfikmetwally.payments.service.ListPaymentsQuery;
+import io.github.tawfikmetwally.payments.service.ListPaymentsResult;
+import io.github.tawfikmetwally.payments.service.ListPaymentsService;
 
 @WebMvcTest(PaymentController.class)
 class PaymentControllerTests {
@@ -51,6 +58,12 @@ class PaymentControllerTests {
 
     @MockitoBean
     private CreatePaymentService createPaymentService;
+
+    @MockitoBean
+    private GetPaymentService getPaymentService;
+
+    @MockitoBean
+    private ListPaymentsService listPaymentsService;
 
     @ParameterizedTest
     @CsvSource({ "tok_approved, APPROVED", "tok_declined, DECLINED" })
@@ -192,6 +205,162 @@ class PaymentControllerTests {
 
         verify(createPaymentService).create(expectedCommand);
         verifyNoMoreInteractions(createPaymentService);
+    }
+
+    @Test
+    void returnsPaymentFoundByIdForAuthenticatedMerchant() throws Exception {
+        when(getPaymentService.getById(PAYMENT_ID, MERCHANT_ID))
+                .thenReturn(payment(PaymentStatus.APPROVED));
+
+        mockMvc.perform(get(ENDPOINT + "/" + PAYMENT_ID)
+                        .with(user(MERCHANT_ID))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(PAYMENT_ID.toString()))
+                .andExpect(jsonPath("$.amount").value(10_000))
+                .andExpect(jsonPath("$.currency").value("BRL"))
+                .andExpect(jsonPath("$.status").value("APPROVED"))
+                .andExpect(jsonPath("$.merchantReference").value("ORDER-123"))
+                .andExpect(jsonPath("$.merchantId").doesNotExist());
+
+        verify(getPaymentService).getById(PAYMENT_ID, MERCHANT_ID);
+        verifyNoMoreInteractions(getPaymentService);
+    }
+
+    @Test
+    void returnsNotFoundWhenPaymentIsUnavailableToAuthenticatedMerchant()
+            throws Exception {
+        when(getPaymentService.getById(PAYMENT_ID, MERCHANT_ID))
+                .thenThrow(new PaymentNotFoundException());
+
+        mockMvc.perform(get(ENDPOINT + "/" + PAYMENT_ID)
+                        .with(user(MERCHANT_ID))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound());
+
+        verify(getPaymentService).getById(PAYMENT_ID, MERCHANT_ID);
+        verifyNoMoreInteractions(getPaymentService);
+    }
+
+    @Test
+    void rejectsMalformedPaymentIdWithoutCallingGetService() throws Exception {
+        mockMvc.perform(get(ENDPOINT + "/not-a-uuid")
+                        .with(user(MERCHANT_ID))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(getPaymentService);
+    }
+
+    @Test
+    void listsPaymentsUsingDefaultPaginationForAuthenticatedMerchant() throws Exception {
+        ListPaymentsQuery expectedQuery = new ListPaymentsQuery(
+                MERCHANT_ID,
+                0,
+                20,
+                null);
+        when(listPaymentsService.list(expectedQuery))
+                .thenReturn(new ListPaymentsResult(
+                        List.of(payment(PaymentStatus.APPROVED)),
+                        0,
+                        20,
+                        1,
+                        1));
+
+        mockMvc.perform(get(ENDPOINT)
+                        .with(user(MERCHANT_ID))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(PAYMENT_ID.toString()))
+                .andExpect(jsonPath("$.content[0].amount").value(10_000))
+                .andExpect(jsonPath("$.content[0].currency").value("BRL"))
+                .andExpect(jsonPath("$.content[0].status").value("APPROVED"))
+                .andExpect(jsonPath("$.content[0].merchantId").doesNotExist())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1));
+
+        verify(listPaymentsService).list(expectedQuery);
+        verifyNoMoreInteractions(listPaymentsService);
+    }
+
+    @Test
+    void listsPaymentsUsingRequestedPageSizeAndStatus() throws Exception {
+        ListPaymentsQuery expectedQuery = new ListPaymentsQuery(
+                MERCHANT_ID,
+                2,
+                5,
+                PaymentStatus.DECLINED);
+        when(listPaymentsService.list(expectedQuery))
+                .thenReturn(new ListPaymentsResult(
+                        List.of(payment(PaymentStatus.DECLINED)),
+                        2,
+                        5,
+                        11,
+                        3));
+
+        mockMvc.perform(get(ENDPOINT)
+                        .with(user(MERCHANT_ID))
+                        .queryParam("page", "2")
+                        .queryParam("size", "5")
+                        .queryParam("status", "DECLINED")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].status").value("DECLINED"))
+                .andExpect(jsonPath("$.page").value(2))
+                .andExpect(jsonPath("$.size").value(5))
+                .andExpect(jsonPath("$.totalElements").value(11))
+                .andExpect(jsonPath("$.totalPages").value(3));
+
+        verify(listPaymentsService).list(expectedQuery);
+        verifyNoMoreInteractions(listPaymentsService);
+    }
+
+    @Test
+    void rejectsNegativePageWithoutCallingListService() throws Exception {
+        mockMvc.perform(get(ENDPOINT)
+                        .with(user(MERCHANT_ID))
+                        .queryParam("page", "-1")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(listPaymentsService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = { 0, 101 })
+    void rejectsSizeOutsideAllowedRangeWithoutCallingListService(int size) throws Exception {
+        mockMvc.perform(get(ENDPOINT)
+                        .with(user(MERCHANT_ID))
+                        .queryParam("size", Integer.toString(size))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(listPaymentsService);
+    }
+
+    @Test
+    void rejectsUnknownStatusWithoutCallingListService() throws Exception {
+        mockMvc.perform(get(ENDPOINT)
+                        .with(user(MERCHANT_ID))
+                        .queryParam("status", "UNKNOWN")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(listPaymentsService);
+    }
+
+    @Test
+    void rejectsUnauthenticatedListRequestWithoutCallingListService() throws Exception {
+        mockMvc.perform(get(ENDPOINT)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(listPaymentsService);
     }
 
     @Test

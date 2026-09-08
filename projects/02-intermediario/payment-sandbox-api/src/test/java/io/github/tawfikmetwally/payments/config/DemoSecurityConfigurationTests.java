@@ -4,6 +4,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -29,6 +30,8 @@ import io.github.tawfikmetwally.payments.enums.PaymentStatus;
 import io.github.tawfikmetwally.payments.service.CreatePaymentCommand;
 import io.github.tawfikmetwally.payments.service.CreatePaymentResult;
 import io.github.tawfikmetwally.payments.service.CreatePaymentService;
+import io.github.tawfikmetwally.payments.service.GetPaymentService;
+import io.github.tawfikmetwally.payments.service.ListPaymentsService;
 
 @ActiveProfiles("demo-no-auth")
 @Import(DemoSecurityConfiguration.class)
@@ -49,6 +52,12 @@ class DemoSecurityConfigurationTests {
 
     @MockitoBean
     private CreatePaymentService createPaymentService;
+
+    @MockitoBean
+    private GetPaymentService getPaymentService;
+
+    @MockitoBean
+    private ListPaymentsService listPaymentsService;
 
     @Test
     void rejectsMissingDemoMerchantHeaderBeforeCallingService() throws Exception {
@@ -102,6 +111,28 @@ class DemoSecurityConfigurationTests {
 
         verify(createPaymentService).create(expectedCommand);
         verifyNoMoreInteractions(createPaymentService);
+    }
+
+    @Test
+    void createsPrincipalFromValidDemoMerchantHeaderForPaymentLookup() throws Exception {
+        Payment payment = Payment.restore(
+                PAYMENT_ID,
+                MERCHANT_ID,
+                "ORDER-DEMO-123",
+                new Money(10_000, BRL),
+                PaymentStatus.APPROVED,
+                NOW,
+                NOW);
+        when(getPaymentService.getById(PAYMENT_ID, MERCHANT_ID))
+                .thenReturn(payment);
+
+        mockMvc.perform(get(ENDPOINT + "/" + PAYMENT_ID)
+                        .header(MERCHANT_HEADER, MERCHANT_ID)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk());
+
+        verify(getPaymentService).getById(PAYMENT_ID, MERCHANT_ID);
+        verifyNoMoreInteractions(getPaymentService);
     }
 
     private MockHttpServletRequestBuilder validRequest() {
