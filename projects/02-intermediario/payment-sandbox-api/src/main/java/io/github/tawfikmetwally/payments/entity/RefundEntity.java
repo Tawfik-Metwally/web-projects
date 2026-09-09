@@ -10,8 +10,12 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Currency;
+import java.util.Objects;
 import java.util.UUID;
 
+import io.github.tawfikmetwally.payments.domain.Money;
+import io.github.tawfikmetwally.payments.domain.Refund;
 import io.github.tawfikmetwally.payments.enums.RefundStatus;
 
 @Entity
@@ -55,6 +59,38 @@ public class RefundEntity {
         this.status = status;
         this.reason = reason;
         this.createdAt = createdAt;
+    }
+
+    public static RefundEntity fromDomain(
+            Refund refund,
+            PaymentEntity payment) {
+        Objects.requireNonNull(refund, "refund must not be null");
+        Objects.requireNonNull(payment, "payment must not be null");
+        if (!refund.getPaymentId().equals(payment.getId())) {
+            throw new IllegalArgumentException(
+                    "refund paymentId must match payment entity id");
+        }
+
+        return new RefundEntity(
+                refund.getId(),
+                payment,
+                refund.getMoney().amountMinor(),
+                refund.getStatus(),
+                refund.getReason(),
+                refund.getCreatedAt());
+    }
+
+    public Refund toDomain() {
+        Money money = new Money(
+                amountMinor,
+                Currency.getInstance(payment.getCurrency()));
+        return Refund.restore(
+                id,
+                payment.getId(),
+                money,
+                status,
+                reason,
+                createdAt);
     }
 
     public UUID getId() {

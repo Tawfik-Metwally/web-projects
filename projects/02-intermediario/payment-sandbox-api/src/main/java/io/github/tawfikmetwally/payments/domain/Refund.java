@@ -51,6 +51,22 @@ public final class Refund {
                 createdAt);
     }
 
+    public static Refund restore(
+            UUID id,
+            UUID paymentId,
+            Money money,
+            RefundStatus status,
+            String reason,
+            Instant createdAt) {
+        return new Refund(
+                id,
+                paymentId,
+                money,
+                status,
+                reason,
+                createdAt);
+    }
+
     private static String requireReason(String reason) {
         if (reason == null || reason.isBlank()) {
             throw new IllegalArgumentException("reason must not be blank");
