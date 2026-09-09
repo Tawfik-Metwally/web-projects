@@ -9,12 +9,15 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import io.github.tawfikmetwally.payments.enums.RefundStatus;
 import io.github.tawfikmetwally.payments.exception.InvalidPaymentStateTransitionException;
 
 class PaymentTests {
 
     private static final UUID PAYMENT_ID = UUID.fromString(
             "b3eb20ee-761f-4e53-a63a-48eb2a87c254");
+    private static final UUID REFUND_ID = UUID.fromString(
+            "11da82b7-d677-4ad3-889e-3b54627b5902");
     private static final Instant CREATED_AT = Instant.parse("2026-09-02T10:00:00Z");
     private static final Money MONEY = new Money(10_000, Currency.getInstance("BRL"));
 
@@ -131,10 +134,104 @@ class PaymentTests {
         Instant refundedAt = CREATED_AT.plusSeconds(120);
         payment.approve(approvedAt);
 
-        payment.refund(refundedAt);
+        Refund refund = payment.refund(
+                REFUND_ID,
+                "CUSTOMER_REQUEST",
+                refundedAt);
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
         assertThat(payment.getUpdatedAt()).isEqualTo(refundedAt);
+        assertThat(refund.getId()).isEqualTo(REFUND_ID);
+        assertThat(refund.getPaymentId()).isEqualTo(PAYMENT_ID);
+        assertThat(refund.getMoney()).isEqualTo(payment.getMoney());
+        assertThat(refund.getStatus()).isEqualTo(RefundStatus.COMPLETED);
+        assertThat(refund.getReason()).isEqualTo("CUSTOMER_REQUEST");
+        assertThat(refund.getCreatedAt()).isEqualTo(refundedAt);
+    }
+
+    @Test
+    void rejectsRefundFromPendingPaymentWithoutChangingPayment() {
+        Payment payment = newPendingPayment();
+
+        assertThatThrownBy(() -> payment.refund(
+                REFUND_ID,
+                "CUSTOMER_REQUEST",
+                CREATED_AT.plusSeconds(60)))
+                .isInstanceOf(InvalidPaymentStateTransitionException.class)
+                .hasMessage("Cannot transition payment from PENDING to REFUNDED");
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(payment.getUpdatedAt()).isEqualTo(CREATED_AT);
+    }
+
+    @Test
+    void rejectsRefundFromDeclinedPaymentWithoutChangingPayment() {
+        Payment payment = newPendingPayment();
+        Instant declinedAt = CREATED_AT.plusSeconds(60);
+        payment.decline(declinedAt);
+
+        assertThatThrownBy(() -> payment.refund(
+                REFUND_ID,
+                "CUSTOMER_REQUEST",
+                CREATED_AT.plusSeconds(120)))
+                .isInstanceOf(InvalidPaymentStateTransitionException.class)
+                .hasMessage("Cannot transition payment from DECLINED to REFUNDED");
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.DECLINED);
+        assertThat(payment.getUpdatedAt()).isEqualTo(declinedAt);
+    }
+
+    @Test
+    void rejectsSecondRefundWithoutChangingPayment() {
+        Payment payment = newPendingPayment();
+        payment.approve(CREATED_AT.plusSeconds(60));
+        Instant firstRefundedAt = CREATED_AT.plusSeconds(120);
+        payment.refund(REFUND_ID, "CUSTOMER_REQUEST", firstRefundedAt);
+
+        assertThatThrownBy(() -> payment.refund(
+                UUID.randomUUID(),
+                "CUSTOMER_REQUEST",
+                CREATED_AT.plusSeconds(180)))
+                .isInstanceOf(InvalidPaymentStateTransitionException.class)
+                .hasMessage("Cannot transition payment from REFUNDED to REFUNDED");
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(payment.getUpdatedAt()).isEqualTo(firstRefundedAt);
+    }
+
+    @Test
+    void rejectsInvalidRefundReasonWithoutChangingPayment() {
+        Payment payment = newPendingPayment();
+        Instant approvedAt = CREATED_AT.plusSeconds(60);
+        payment.approve(approvedAt);
+
+        assertThatThrownBy(() -> payment.refund(
+                REFUND_ID,
+                " ",
+                CREATED_AT.plusSeconds(120)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("reason must not be blank");
+        assertThatThrownBy(() -> payment.refund(
+                REFUND_ID,
+                "r".repeat(256),
+                CREATED_AT.plusSeconds(120)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("reason must not exceed 255 characters");
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(payment.getUpdatedAt()).isEqualTo(approvedAt);
+    }
+
+    @Test
+    void rejectsEarlierRefundTimeWithoutChangingPayment() {
+        Payment payment = newPendingPayment();
+        Instant approvedAt = CREATED_AT.plusSeconds(60);
+        payment.approve(approvedAt);
+
+        assertThatThrownBy(() -> payment.refund(
+                REFUND_ID,
+                "CUSTOMER_REQUEST",
+                CREATED_AT.plusSeconds(59)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("occurredAt must not be before updatedAt");
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(payment.getUpdatedAt()).isEqualTo(approvedAt);
     }
 
     @Test

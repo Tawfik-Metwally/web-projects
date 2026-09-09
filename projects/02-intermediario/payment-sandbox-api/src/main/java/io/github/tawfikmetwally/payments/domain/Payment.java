@@ -89,8 +89,10 @@ public final class Payment {
         transitionTo(PaymentStatus.PENDING, PaymentStatus.DECLINED, occurredAt);
     }
 
-    public void refund(Instant occurredAt) {
+    public Refund refund(UUID refundId, String reason, Instant occurredAt) {
+        Refund refund = Refund.create(refundId, id, money, reason, occurredAt);
         transitionTo(PaymentStatus.APPROVED, PaymentStatus.REFUNDED, occurredAt);
+        return refund;
     }
 
     private void transitionTo(
