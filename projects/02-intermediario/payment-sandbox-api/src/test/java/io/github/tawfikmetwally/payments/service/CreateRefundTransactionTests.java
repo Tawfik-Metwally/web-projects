@@ -21,14 +21,17 @@ import org.mockito.ArgumentCaptor;
 
 import io.github.tawfikmetwally.payments.entity.IdempotencyRecordEntity;
 import io.github.tawfikmetwally.payments.entity.PaymentEntity;
+import io.github.tawfikmetwally.payments.entity.PaymentEventEntity;
 import io.github.tawfikmetwally.payments.entity.RefundEntity;
 import io.github.tawfikmetwally.payments.enums.IdempotencyOperation;
+import io.github.tawfikmetwally.payments.enums.PaymentEventType;
 import io.github.tawfikmetwally.payments.enums.PaymentStatus;
 import io.github.tawfikmetwally.payments.enums.RefundStatus;
 import io.github.tawfikmetwally.payments.exception.IdempotencyConflictException;
 import io.github.tawfikmetwally.payments.exception.PaymentNotFoundException;
 import io.github.tawfikmetwally.payments.exception.PaymentNotRefundableException;
 import io.github.tawfikmetwally.payments.repository.IdempotencyRecordJpaRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
 import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
 import io.github.tawfikmetwally.payments.repository.RefundJpaRepository;
 
@@ -40,6 +43,7 @@ class CreateRefundTransactionTests {
 
     private PaymentJpaRepository paymentRepository;
     private RefundJpaRepository refundRepository;
+    private PaymentEventJpaRepository paymentEventRepository;
     private IdempotencyRecordJpaRepository idempotencyRecordRepository;
     private final CreateRefundRequestHasher requestHasher =
             new CreateRefundRequestHasher();
@@ -49,6 +53,7 @@ class CreateRefundTransactionTests {
     void setUp() {
         paymentRepository = mock(PaymentJpaRepository.class);
         refundRepository = mock(RefundJpaRepository.class);
+        paymentEventRepository = mock(PaymentEventJpaRepository.class);
         idempotencyRecordRepository = mock(IdempotencyRecordJpaRepository.class);
         when(paymentRepository.save(any(PaymentEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -58,6 +63,7 @@ class CreateRefundTransactionTests {
         refundTransaction = new CreateRefundTransaction(
                 paymentRepository,
                 refundRepository,
+                paymentEventRepository,
                 idempotencyRecordRepository,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -96,6 +102,17 @@ class CreateRefundTransactionTests {
         assertThat(refundCaptor.getValue().getPayment().getId())
                 .isEqualTo(PAYMENT_ID);
 
+        ArgumentCaptor<PaymentEventEntity> eventCaptor =
+                ArgumentCaptor.forClass(PaymentEventEntity.class);
+        verify(paymentEventRepository).save(eventCaptor.capture());
+        PaymentEventEntity event = eventCaptor.getValue();
+        assertThat(event.getPayment().getId()).isEqualTo(PAYMENT_ID);
+        assertThat(event.getEventType())
+                .isEqualTo(PaymentEventType.PAYMENT_REFUNDED);
+        assertThat(event.getFromStatus()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(event.getToStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(event.getOccurredAt()).isEqualTo(NOW);
+
         ArgumentCaptor<IdempotencyRecordEntity> recordCaptor =
                 ArgumentCaptor.forClass(IdempotencyRecordEntity.class);
         verify(idempotencyRecordRepository).saveAndFlush(recordCaptor.capture());
@@ -124,7 +141,7 @@ class CreateRefundTransactionTests {
         assertThat(result.replayed()).isTrue();
         assertThat(result.refund()).usingRecursiveComparison()
                 .isEqualTo(refund.toDomain());
-        verifyNoInteractions(paymentRepository);
+        verifyNoInteractions(paymentRepository, paymentEventRepository);
         verifyOnlyRecordLookup(command);
         verify(refundRepository).findByPayment_IdAndPayment_MerchantId(
                 PAYMENT_ID,
@@ -147,7 +164,10 @@ class CreateRefundTransactionTests {
                 requestHasher.hash(changedCommand)))
                 .isInstanceOf(IdempotencyConflictException.class);
 
-        verifyNoInteractions(paymentRepository, refundRepository);
+        verifyNoInteractions(
+                paymentRepository,
+                refundRepository,
+                paymentEventRepository);
         verifyOnlyRecordLookup(changedCommand);
     }
 
@@ -169,7 +189,7 @@ class CreateRefundTransactionTests {
                 PAYMENT_ID,
                 command.merchantId());
         verifyNoMoreInteractions(paymentRepository);
-        verifyNoInteractions(refundRepository);
+        verifyNoInteractions(refundRepository, paymentEventRepository);
         verifyOnlyRecordLookup(command);
     }
 
@@ -191,7 +211,7 @@ class CreateRefundTransactionTests {
                 PAYMENT_ID,
                 command.merchantId());
         verifyNoMoreInteractions(paymentRepository);
-        verifyNoInteractions(refundRepository);
+        verifyNoInteractions(refundRepository, paymentEventRepository);
         verifyOnlyRecordLookup(command);
     }
 
