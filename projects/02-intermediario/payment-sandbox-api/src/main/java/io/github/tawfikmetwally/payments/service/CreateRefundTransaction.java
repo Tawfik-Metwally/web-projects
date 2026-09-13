@@ -100,6 +100,31 @@ public class CreateRefundTransaction {
         return toReplayResult(record, command, requestHash);
     }
 
+    @Transactional(readOnly = true)
+    public CreateRefundResult resolveRefundConflict(
+            CreateRefundCommand command,
+            String requestHash) {
+        Optional<IdempotencyRecordEntity> currentKeyWinner =
+                findRecord(command);
+        if (currentKeyWinner.isPresent()) {
+            return toReplayResult(
+                    currentKeyWinner.get(),
+                    command,
+                    requestHash);
+        }
+
+        if (refundRepository
+                .findByPayment_IdAndPayment_MerchantId(
+                        command.paymentId(),
+                        command.merchantId())
+                .isPresent()) {
+            throw new PaymentNotRefundableException();
+        }
+
+        throw new IllegalStateException(
+                "Refund winner was not found after unique constraint conflict");
+    }
+
     private Optional<IdempotencyRecordEntity> findRecord(
             CreateRefundCommand command) {
         return idempotencyRecordRepository

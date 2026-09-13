@@ -26,6 +26,7 @@ class CreateRefundServiceTests {
             "550e8400-e29b-41d4-a716-446655440000");
     private static final String IDEMPOTENCY_CONSTRAINT =
             "uq_idempotency_records_merchant_operation_key";
+    private static final String REFUND_CONSTRAINT = "uq_refunds_payment";
     private static final Instant NOW = Instant.parse("2026-09-09T15:00:00Z");
 
     private CreateRefundTransaction refundTransaction;
@@ -74,11 +75,31 @@ class CreateRefundServiceTests {
     }
 
     @Test
-    void propagatesViolationFromAnotherDatabaseConstraint() {
+    void resolvesWinnerAfterRefundConstraintConflict() {
         CreateRefundCommand command = command();
         String requestHash = requestHasher.hash(command);
         DataIntegrityViolationException databaseException =
-                databaseException("uq_refunds_payment");
+                databaseException(REFUND_CONSTRAINT);
+        CreateRefundResult replayed = new CreateRefundResult(refund(), true);
+        when(refundTransaction.execute(command, requestHash))
+                .thenThrow(databaseException);
+        when(refundTransaction.resolveRefundConflict(command, requestHash))
+                .thenReturn(replayed);
+
+        CreateRefundResult result = service.create(command);
+
+        assertThat(result).isSameAs(replayed);
+        verify(refundTransaction).execute(command, requestHash);
+        verify(refundTransaction).resolveRefundConflict(command, requestHash);
+        verifyNoMoreInteractions(refundTransaction);
+    }
+
+    @Test
+    void propagatesViolationFromUnknownDatabaseConstraint() {
+        CreateRefundCommand command = command();
+        String requestHash = requestHasher.hash(command);
+        DataIntegrityViolationException databaseException =
+                databaseException("ck_refunds_amount_positive");
         when(refundTransaction.execute(command, requestHash))
                 .thenThrow(databaseException);
 

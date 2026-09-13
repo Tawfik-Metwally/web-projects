@@ -215,6 +215,56 @@ class CreateRefundTransactionTests {
         verifyOnlyRecordLookup(command);
     }
 
+    @Test
+    void resolvesRefundConstraintAsReplayWhenCurrentKeyWon() {
+        CreateRefundCommand command = command("CUSTOMER_REQUEST");
+        String requestHash = requestHasher.hash(command);
+        PaymentEntity payment = paymentEntity(PaymentStatus.REFUNDED);
+        RefundEntity refund = refundEntity(payment);
+        stubRecord(command, existingRecord(command, requestHash, payment));
+        when(refundRepository.findByPayment_IdAndPayment_MerchantId(
+                PAYMENT_ID,
+                command.merchantId()))
+                .thenReturn(Optional.of(refund));
+
+        CreateRefundResult result = refundTransaction.resolveRefundConflict(
+                command,
+                requestHash);
+
+        assertThat(result.replayed()).isTrue();
+        assertThat(result.refund()).usingRecursiveComparison()
+                .isEqualTo(refund.toDomain());
+        verifyOnlyRecordLookup(command);
+        verify(refundRepository).findByPayment_IdAndPayment_MerchantId(
+                PAYMENT_ID,
+                command.merchantId());
+        verifyNoMoreInteractions(refundRepository);
+        verifyNoInteractions(paymentRepository, paymentEventRepository);
+    }
+
+    @Test
+    void resolvesRefundConstraintAsConflictWhenAnotherKeyWon() {
+        CreateRefundCommand command = command("CUSTOMER_REQUEST");
+        stubNoRecord(command);
+        when(refundRepository.findByPayment_IdAndPayment_MerchantId(
+                PAYMENT_ID,
+                command.merchantId()))
+                .thenReturn(Optional.of(refundEntity(
+                        paymentEntity(PaymentStatus.REFUNDED))));
+
+        assertThatThrownBy(() -> refundTransaction.resolveRefundConflict(
+                command,
+                requestHasher.hash(command)))
+                .isInstanceOf(PaymentNotRefundableException.class);
+
+        verifyOnlyRecordLookup(command);
+        verify(refundRepository).findByPayment_IdAndPayment_MerchantId(
+                PAYMENT_ID,
+                command.merchantId());
+        verifyNoMoreInteractions(refundRepository);
+        verifyNoInteractions(paymentRepository, paymentEventRepository);
+    }
+
     private void stubNoRecord(CreateRefundCommand command) {
         when(idempotencyRecordRepository
                 .findByMerchantIdAndOperationTypeAndIdempotencyKey(
