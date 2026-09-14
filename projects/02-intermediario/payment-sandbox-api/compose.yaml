@@ -41,7 +41,7 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.7.2
-    command: start-dev
+    command: start-dev --import-realm
     ports:
       - "127.0.0.1:8180:8080"
     environment:
@@ -52,6 +52,10 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KC_HEALTH_ENABLED: "true"
+      MERCHANT_A_CLIENT_SECRET: ${MERCHANT_A_CLIENT_SECRET}
+      MERCHANT_B_CLIENT_SECRET: ${MERCHANT_B_CLIENT_SECRET}
+    volumes:
+      - ./docker/keycloak/payment-sandbox-realm.json:/opt/keycloak/data/import/payment-sandbox-realm.json:ro
     depends_on:
       postgres:
         condition: service_healthy

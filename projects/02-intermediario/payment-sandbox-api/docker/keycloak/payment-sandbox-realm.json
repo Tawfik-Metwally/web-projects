@@ -1,0 +1,123 @@
+{
+  "realm": "payment-sandbox",
+  "displayName": "Payment Sandbox",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "accessTokenLifespan": 300,
+  "clientScopes": [
+    {
+      "name": "payments:create",
+      "description": "Create simulated payments",
+      "protocol": "openid-connect",
+      "attributes": {
+        "display.on.consent.screen": "false",
+        "include.in.token.scope": "true"
+      }
+    },
+    {
+      "name": "payments:read",
+      "description": "Read simulated payments and their event history",
+      "protocol": "openid-connect",
+      "attributes": {
+        "display.on.consent.screen": "false",
+        "include.in.token.scope": "true"
+      }
+    },
+    {
+      "name": "refunds:create",
+      "description": "Create full refunds for simulated payments",
+      "protocol": "openid-connect",
+      "attributes": {
+        "display.on.consent.screen": "false",
+        "include.in.token.scope": "true"
+      }
+    },
+    {
+      "name": "payment-sandbox-api-audience",
+      "description": "Adds the Payment Sandbox API as access-token audience",
+      "protocol": "openid-connect",
+      "attributes": {
+        "display.on.consent.screen": "false",
+        "include.in.token.scope": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "payment-sandbox-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "payment-sandbox-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "payment-sandbox-api",
+      "name": "Payment Sandbox API",
+      "description": "OAuth resource server represented as the token audience",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "bearerOnly": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "fullScopeAllowed": false
+    },
+    {
+      "clientId": "merchant-a-client",
+      "name": "Merchant A backend",
+      "description": "Confidential machine client with payment and refund access",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${MERCHANT_A_CLIENT_SECRET}",
+      "bearerOnly": false,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "fullScopeAllowed": false,
+      "defaultClientScopes": [
+        "payments:create",
+        "payments:read",
+        "refunds:create",
+        "payment-sandbox-api-audience"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "merchant-b-client",
+      "name": "Merchant B backend",
+      "description": "Confidential machine client without refund access",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${MERCHANT_B_CLIENT_SECRET}",
+      "bearerOnly": false,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "fullScopeAllowed": false,
+      "defaultClientScopes": [
+        "payments:create",
+        "payments:read",
+        "payment-sandbox-api-audience"
+      ],
+      "optionalClientScopes": []
+    }
+  ]
+}

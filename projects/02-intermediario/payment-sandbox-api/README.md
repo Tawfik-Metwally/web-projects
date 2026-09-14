@@ -4,25 +4,25 @@ A containerized REST API for simulating payment creation, queries, idempotency, 
 
 ## Status
 
-The project is under active development. The persistence model, payment domain, and `POST /api/v1/payments` flow are implemented. The service coordinates deterministic approval or decline and saves the payment, its creation and decision events, and the idempotency record within transactional boundaries.
+The project is under active development. Payment creation, merchant-scoped queries, paginated listing, full refunds, and chronological event history are implemented. Creation and refund operations persist their state, events, and idempotency records within transactional boundaries.
 
-Persistent idempotency is enforced per merchant, operation, and key. An identical retry returns the existing payment, a changed request with the same key returns HTTP 409, and concurrent requests recover the winning transaction after the losing transaction rolls back. This is not a production-ready payment API: JWT validation and real merchant identity mapping, query and refund endpoints, and standardized error responses are still pending.
+Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak now has a versioned realm, confidential merchant clients, API audience, and business scopes. This is not a production-ready payment API: Spring Security JWT validation, real merchant identity mapping, endpoint authorization, and standardized error responses are still pending.
 
 ## Current verification
 
-The latest clean build passed 83 tests with no failures, errors, or skipped tests:
+The latest validated clean build passed 164 tests with no failures, errors, or skipped tests:
 
 - domain, simulator, request-validation, mapping, hashing, service, and transaction tests;
 - Spring MVC controller tests with mocked service dependencies;
 - demo-profile security tests for missing, invalid, and valid merchant headers;
 - PostgreSQL persistence tests with Testcontainers;
-- full application integration tests for creation, replay, conflict, and concurrent idempotency.
+- full application integration tests for payment creation, queries, refunds, replay, conflicts, history, merchant isolation, and concurrent idempotency.
 
-The integration suite connects the HTTP layer, demo identity filter, controller, service, domain, repositories, Hibernate, and temporary PostgreSQL. The concurrent test forces two transactions to compete for the real unique constraint and verifies one HTTP 201 response, one replayed HTTP 200 response, and final persisted counts of one payment, two events, and one idempotency record. These tests do not establish real JWT validation.
+The integration suite connects the HTTP layer, demo identity filter, controllers, services, domain, repositories, Hibernate, and temporary PostgreSQL. Concurrent tests force two transactions to compete for real unique constraints and verify replay for the same key, conflict for different refund keys, and absence of partial or duplicate data. These tests do not establish real JWT validation.
 
-For a new payment, the controller returns `201 Created` and a `Location` header, including when the financial result is `DECLINED`. An identical retry returns `200 OK` with `Idempotency-Replayed: true`; changed content under the same key returns `409 Conflict`. The query route advertised by `Location` is not implemented yet.
+For a new payment, the controller returns `201 Created` and a `Location` header, including when the financial result is `DECLINED`. An identical retry returns `200 OK` with `Idempotency-Replayed: true`; changed content under the same key returns `409 Conflict`. Query, list, refund, and event-history routes preserve merchant isolation.
 
-The same create, replay, and conflict flow was also verified manually with Postman against the persistent `payments_demo` database. DBeaver confirmed that only HTTP 201 requests created rows and that each created payment has exactly two events and one idempotency record.
+The complete payment and refund flow was also verified manually with Postman against the persistent `payments_demo` database. DBeaver confirmed one payment, one refund, three events, and two idempotency records for the approved-and-refunded scenario, while replay and rejected attempts created no duplicates.
 
 ## Code organization
 
@@ -46,7 +46,7 @@ payments
 `-- simulator        deterministic provider simulation
 ```
 
-`Payment` remains separate from `PaymentEntity`; this package arrangement does not merge business rules with persistence mappings. The current `security` package contains only the explicit local demonstration filter. Real JWT resource-server configuration remains pending.
+`Payment` remains separate from `PaymentEntity`; this package arrangement does not merge business rules with persistence mappings. The current `security` package contains only the explicit local demonstration filter. Keycloak can issue the target tokens, but real JWT resource-server configuration in the API remains pending.
 
 Tests live in `src/test/java` and mirror the package of the component they test. Application tests, cross-repository persistence integration tests, and shared Testcontainers support remain in the base package. JUnit runs the tests, Mockito replaces selected dependencies, and AssertJ checks results.
 
@@ -84,6 +84,8 @@ cp .env.example .env
 
 Replace every placeholder before starting the containers. Do not overwrite an existing `.env` or commit it. Database initialization uses these values when the PostgreSQL data volume is first created; editing `.env` later does not automatically update existing database users or passwords.
 
+`MERCHANT_A_CLIENT_SECRET` and `MERCHANT_B_CLIENT_SECRET` must be independent random values. They authenticate backend systems, are substituted into the local Keycloak realm import, and must never be committed.
+
 ### Start the development environment
 
 Open this project directory in VS Code and run **Dev Containers: Reopen in Container**. VS Code combines `compose.yaml` and `.devcontainer/compose.extend.yaml` to start `dev`, `postgres`, and `keycloak`. The development override excludes the packaged `api` service with the `packaged-api` profile.
@@ -97,6 +99,50 @@ In the Dev Container's Bash terminal, the project is mounted at `/workspace`. St
 Keep that terminal open while using the API. Stop Spring Boot with **Ctrl+C** in the same terminal; this does not stop PostgreSQL or Keycloak.
 
 Source edits do not require rebuilding the Dev Container. Stop and restart the application to load changes. Use **Dev Containers: Rebuild Container** when changing the development image or its features.
+
+### Keycloak realm and machine clients
+
+The Keycloak container mounts `docker/keycloak/payment-sandbox-realm.json` and
+starts with `--import-realm`. On the first start, it creates the
+`payment-sandbox` realm. Later starts preserve an existing realm instead of
+overwriting it.
+
+The local realm defines these clients and default scopes:
+
+| Client | Purpose | Default business scopes |
+|---|---|---|
+| `payment-sandbox-api` | bearer-only API audience | none |
+| `merchant-a-client` | Merchant A backend | `payments:create`, `payments:read`, `refunds:create` |
+| `merchant-b-client` | Merchant B backend | `payments:create`, `payments:read` |
+
+Both merchant clients use Client Credentials with service accounts. Standard,
+implicit, and direct-access-grant flows are disabled. Their access tokens expire
+after five minutes and carry `payment-sandbox-api` as audience. Merchant B cannot
+request `refunds:create` because that scope is not linked to its client.
+
+Token endpoint:
+
+```text
+POST http://localhost:8180/realms/payment-sandbox/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+```
+
+Form fields:
+
+```text
+grant_type=client_credentials
+client_id=<merchant client ID>
+client_secret=<matching private value from .env>
+```
+
+The business scopes are linked as default client scopes, so clients do not need to
+send a `scope` form field during normal token requests. Sending `scope` only asks
+for an already allowed scope; it never changes client permissions. Keycloak rejects
+a request for a scope that is not linked to that client.
+
+Token issuance proves the authorization-server configuration only. Until the
+Spring Security resource server is configured, these tokens do not yet authorize
+requests to the Payment Sandbox API.
 
 ### Optional demonstration database (Dev Container)
 
@@ -188,10 +234,10 @@ Dev Container: they take precedence over profile files. Tests continue to use
 Testcontainers connection details; do not activate `demo` for the test suite.
 
 The demo profiles were validated manually against `payments_demo`: Flyway applied
-V1, Hibernate accepted the schema, and Postman verified HTTP 201 creation, HTTP 200
-replay, and HTTP 409 conflict. PostgreSQL and DBeaver confirmed that replay and
-conflict do not duplicate persisted data. The clean test suite then passed all 83
-tests. Real authenticated HTTP verification remains deferred until JWT integration.
+V1, Hibernate accepted the schema, and Postman verified payment queries, pagination,
+full refund, replay, conflicts, history, and merchant isolation. PostgreSQL and
+DBeaver confirmed that replay and rejected requests do not duplicate data. Real
+authenticated HTTP verification remains deferred until the API validates JWTs.
 
 ### Addresses and current limitations
 
@@ -208,7 +254,7 @@ database port. Database names and credentials come from `.env`; use the dedicate
 `payments_demo` role and `DEMO_DB_PASSWORD` when connecting DBeaver to the
 `payments_demo` database.
 
-Health reports application health, not completion of all payment features. `POST /api/v1/payments` is not a browser GET page. Outside the explicit `demo-no-auth` profile, Spring Security defaults remain active, and the Keycloak login is separate from API authentication. Obtaining a Keycloak token does not yet enable a working JWT payment flow. Query endpoints, refunds, and real JWT configuration remain pending.
+Health reports application health, not completion of all payment features. `POST /api/v1/payments` is not a browser GET page. Outside the explicit `demo-no-auth` profile, Spring Security defaults remain active. Keycloak can issue machine tokens, but obtaining one does not yet enable an authenticated payment request because Resource Server validation and JWT-to-merchant mapping remain pending.
 
 ### Run tests
 
@@ -235,6 +281,7 @@ Select one test class; each line below is an independent command:
 ./mvnw '-Dtest=PersistenceIntegrationTests' test
 ./mvnw '-Dtest=DemoSecurityConfigurationTests' test
 ./mvnw '-Dtest=PaymentCreationIntegrationTests' test
+./mvnw '-Dtest=KeycloakRealmConfigurationTests' test
 ```
 
 Select only the merchant-isolation test:
@@ -245,7 +292,7 @@ Select only the merchant-isolation test:
 
 Domain tests check rules without mocks. Service tests mock repositories, controller tests mock the service, and persistence integration tests use a real temporary database. Selecting tests limits execution; Maven may still compile other sources.
 
-Check both `BUILD SUCCESS` and `Tests run / Failures / Errors / Skipped`. Per-class summaries appear in the terminal; detailed reports are generated in `target/surefire-reports/`. The latest validated full suite contains 83 test executions.
+Check both `BUILD SUCCESS` and `Tests run / Failures / Errors / Skipped`. Per-class summaries appear in the terminal; detailed reports are generated in `target/surefire-reports/`. The latest validated full suite contains 164 test executions.
 
 ### Stop the development environment
 
@@ -287,6 +334,7 @@ The packaged API uses the same localhost addresses and has the same unfinished f
 ## Infrastructure and local files
 
 - `.devcontainer/`: development container configuration and its Dockerfile;
+- `docker/keycloak/`: versioned local realm, clients, scopes, and audience;
 - `docker/postgres/`: initialization of database users and databases;
 - `src/main/resources/db/migration/`: Flyway migrations for application tables;
 - `.mvn/`, `mvnw`, and `mvnw.cmd`: Maven Wrapper;
