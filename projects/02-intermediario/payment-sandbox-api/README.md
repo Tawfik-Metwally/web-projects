@@ -6,11 +6,11 @@ A containerized REST API for simulating payment creation, queries, idempotency, 
 
 The project is under active development. Payment creation, merchant-scoped queries, paginated listing, full refunds, and chronological event history are implemented. Creation and refund operations persist their state, events, and idempotency records within transactional boundaries.
 
-Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: endpoint scope authorization, broader security tests, and standardized error responses are still pending.
+Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: broader security tests and standardized error responses are still pending.
 
 ## Current verification
 
-The current reports contain 191 passing tests with no failures, errors, or skipped tests, verified with `./mvnw -q clean test` in an isolated temporary project copy inside the Dev Container. This avoids interference with the IDE's shared build output.
+The current reports contain 240 passing tests with no failures, errors, or skipped tests, verified with `./mvnw -q clean test` in an isolated temporary project copy inside the Dev Container. This avoids interference with the IDE's shared build output.
 
 - domain, simulator, request-validation, mapping, hashing, service, and transaction tests;
 - Spring MVC controller tests with mocked service dependencies;
@@ -22,7 +22,9 @@ Business-flow integration tests use prepared JWT authentication to exercise cont
 
 `JwtMerchantIsolationIntegrationTests` additionally sends genuinely signed Bearer tokens through the real decoder, claim converter, HTTP layer, and PostgreSQL. It verifies ownership in both directions, merchant-scoped pagination, payment and refund idempotency, ignored spoofed merchant headers/query parameters, and rejection without persistence. Its temporary signing authority is not the running Keycloak instance. Both test merchants deliberately share a subject and have all business scopes so these tests isolate ownership rather than scope authorization.
 
-The current identity model is one Keycloak client per merchant: validated `azp` becomes the merchant ID, not `sub`. Renaming a client changes that identity; supporting several clients for one merchant would require a separate mapping design. Header and query values cannot override it. Endpoint scope enforcement remains pending.
+`JwtScopeAuthorizationIntegrationTests` adds 49 signed-token/PostgreSQL cases: all five endpoints with exact, missing, empty, unrelated, lookalike, or combined scopes; absent and invalid tokens; unconfigured routes; authorization before body parsing and ownership checks; and unchanged database state after rejection. These tokens use a temporary test issuer, not live Keycloak.
+
+The current identity model is one Keycloak client per merchant: validated `azp` becomes the merchant ID, not `sub`. Renaming a client changes that identity; supporting several clients for one merchant would require a separate mapping design. Header and query values cannot override it. Endpoint scope enforcement is implemented for all five business routes.
 
 For a new payment, the controller returns `201 Created` and a `Location` header, including when the financial result is `DECLINED`. An identical retry returns `200 OK` with `Idempotency-Replayed: true`; changed content under the same key returns `409 Conflict`. Query, list, refund, and event-history routes preserve merchant isolation.
 
@@ -145,9 +147,21 @@ a request for a scope that is not linked to that client.
 
 The API validates the token signature with Keycloak's JWK Set, requires the
 `payment-sandbox` issuer and `payment-sandbox-api` audience, and uses `azp`
-as the initial merchant identity. Endpoint-specific scope checks are introduced
-separately; at this stage every valid merchant token can reach every `/api/**`
-route.
+as the merchant identity. Endpoint authorization requires the exact business scope:
+
+| Method | Path | Required scope |
+|---|---|---|
+| POST | `/api/v1/payments` | `payments:create` |
+| GET | `/api/v1/payments` | `payments:read` |
+| GET | `/api/v1/payments/{paymentId}` | `payments:read` |
+| GET | `/api/v1/payments/{paymentId}/events` | `payments:read` |
+| POST | `/api/v1/payments/{paymentId}/refunds` | `refunds:create` |
+
+Spring converts token scopes to `SCOPE_` authorities. Missing/invalid authentication
+returns 401; insufficient scope returns 403 before the controller. Ownership is
+checked afterward: with the required scope, a missing or cross-merchant payment
+returns 404. Other `/api/**` method/path combinations are denied by default.
+Merchant B's configured token cannot invoke refunds, including for its own payment.
 
 ### Optional demonstration database (Dev Container)
 
@@ -261,7 +275,7 @@ database port. Database names and credentials come from `.env`; use the dedicate
 `payments_demo` role and `DEMO_DB_PASSWORD` when connecting DBeaver to the
 `payments_demo` database.
 
-Health reports application health, not completion of all payment features. `POST /api/v1/payments` is not a browser GET page. All `/api/**` routes require a valid Bearer JWT. Scope-based endpoint authorization is still pending, so authentication currently proves who the merchant client is but does not yet restrict which operation that client can perform.
+Health reports application health, not completion of all payment features. `POST /api/v1/payments` is not a browser GET page. Business API routes require a valid Bearer JWT and the scope listed above; unconfigured API routes are denied.
 
 ### Run tests
 

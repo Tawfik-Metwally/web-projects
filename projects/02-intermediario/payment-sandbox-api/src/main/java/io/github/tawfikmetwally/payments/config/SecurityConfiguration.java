@@ -2,6 +2,7 @@ package io.github.tawfikmetwally.payments.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -26,7 +27,17 @@ public class SecurityConfiguration {
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/api/**").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payments")
+                            .hasAuthority("SCOPE_payments:create")
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/payments",
+                                "/api/v1/payments/{paymentId}",
+                                "/api/v1/payments/{paymentId}/events")
+                            .hasAuthority("SCOPE_payments:read")
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/payments/{paymentId}/refunds")
+                            .hasAuthority("SCOPE_refunds:create")
+                        .requestMatchers("/api/**").denyAll()
                         .anyRequest().permitAll())
                 .oauth2ResourceServer(resourceServer -> resourceServer
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(token -> {

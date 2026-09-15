@@ -24,6 +24,7 @@ public final class JwtSigningTestSupport implements AutoCloseable {
     public static final String ISSUER = "https://issuer.example.test/realms/payments";
     public static final String AUDIENCE = "payment-sandbox-api";
     private static final String KEY_ID = "test-key";
+    private static final String ALL_SCOPES = "payments:create payments:read refunds:create";
 
     private final RSAKey signingKey;
     private final HttpServer server;
@@ -55,29 +56,35 @@ public final class JwtSigningTestSupport implements AutoCloseable {
     }
 
     public String token(Object merchantId) throws JOSEException {
-        return sign(signingKey, merchantId, ISSUER, AUDIENCE, 300);
+        return tokenWithScopes(merchantId, ALL_SCOPES);
+    }
+
+    public String tokenWithScopes(Object merchantId, String scopes) throws JOSEException {
+        return sign(signingKey, merchantId, ISSUER, AUDIENCE, 300, scopes);
     }
 
     public String token(Object merchantId, String issuer, String audience, int expirySeconds)
             throws JOSEException {
-        return sign(signingKey, merchantId, issuer, audience, expirySeconds);
+        return sign(signingKey, merchantId, issuer, audience, expirySeconds, ALL_SCOPES);
     }
 
     public String tokenWithForeignSignature(String merchantId) throws JOSEException {
         RSAKey foreignKey = new RSAKeyGenerator(2048).keyID(KEY_ID).generate();
-        return sign(foreignKey, merchantId, ISSUER, AUDIENCE, 300);
+        return sign(foreignKey, merchantId, ISSUER, AUDIENCE, 300, ALL_SCOPES);
     }
 
     private String sign(RSAKey key, Object merchantId, String issuer,
-            String audience, int expirySeconds) throws JOSEException {
+            String audience, int expirySeconds, String scopes) throws JOSEException {
         Instant now = Instant.now();
         var claims = new JWTClaimsSet.Builder()
                 .issuer(issuer)
                 .subject("internal-service-account")
                 .audience(audience)
-                .claim("scope", "payments:create payments:read refunds:create")
                 .issueTime(Date.from(now.minusSeconds(600)))
                 .expirationTime(Date.from(now.plusSeconds(expirySeconds)));
+        if (scopes != null) {
+            claims.claim("scope", scopes);
+        }
         if (merchantId != null) {
             claims.claim("azp", merchantId);
         }

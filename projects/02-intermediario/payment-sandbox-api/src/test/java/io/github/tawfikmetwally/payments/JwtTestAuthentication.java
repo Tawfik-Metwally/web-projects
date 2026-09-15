@@ -5,6 +5,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import java.time.Instant;
 import java.util.List;
 
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -30,7 +31,10 @@ public final class JwtTestAuthentication {
                 .build();
         return authentication(new JwtAuthenticationToken(
                 jwt,
-                List.of(),
+                List.of(
+                        new SimpleGrantedAuthority("SCOPE_payments:create"),
+                        new SimpleGrantedAuthority("SCOPE_payments:read"),
+                        new SimpleGrantedAuthority("SCOPE_refunds:create")),
                 merchantId));
     }
 }
