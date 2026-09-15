@@ -13,8 +13,11 @@ import java.time.Instant;
 import java.util.Currency;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -144,6 +147,22 @@ class JwtSecurityConfigurationTests {
 
         verify(getPaymentService).getById(PAYMENT_ID, MERCHANT_ID);
         verifyNoMoreInteractions(getPaymentService);
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidMerchantClaims")
+    void rejectsMalformedMerchantClaimBeforeCallingServices(Object merchant) throws Exception {
+        Jwt token = Jwt.withTokenValue(VALID_TOKEN)
+                .header("alg", "RS256").subject("internal-service-account")
+                .claim("azp", merchant).build();
+        when(jwtDecoder.decode(VALID_TOKEN)).thenReturn(token);
+        mockMvc.perform(withBearer(validRequest(), VALID_TOKEN))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(createPaymentService, getPaymentService, listPaymentsService);
+    }
+
+    static Stream<Object> invalidMerchantClaims() {
+        return Stream.of("", " ", " merchant-a-client", "merchant-a-client ", "x".repeat(101), 42);
     }
 
     private MockHttpServletRequestBuilder validRequest() {

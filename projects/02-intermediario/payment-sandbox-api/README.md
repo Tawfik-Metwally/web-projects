@@ -6,11 +6,11 @@ A containerized REST API for simulating payment creation, queries, idempotency, 
 
 The project is under active development. Payment creation, merchant-scoped queries, paginated listing, full refunds, and chronological event history are implemented. Creation and refund operations persist their state, events, and idempotency records within transactional boundaries.
 
-Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: endpoint authorization, hardened tenant mapping, broader security tests, and standardized error responses are still pending.
+Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: endpoint scope authorization, broader security tests, and standardized error responses are still pending.
 
 ## Current verification
 
-The current reports contain 170 passing tests with no failures, errors, or skipped tests: verified with a clean rebuild, including real signed-token decoder tests.
+The current reports contain 191 passing tests with no failures, errors, or skipped tests, verified with `./mvnw -q clean test` in an isolated temporary project copy inside the Dev Container. This avoids interference with the IDE's shared build output.
 
 - domain, simulator, request-validation, mapping, hashing, service, and transaction tests;
 - Spring MVC controller tests with mocked service dependencies;
@@ -18,7 +18,11 @@ The current reports contain 170 passing tests with no failures, errors, or skipp
 - PostgreSQL persistence tests with Testcontainers;
 - full application integration tests for payment creation, queries, refunds, replay, conflicts, history, merchant isolation, and concurrent idempotency.
 
-The integration suite connects a JWT-authenticated HTTP layer, controllers, services, domain, repositories, Hibernate, and temporary PostgreSQL. Concurrent tests force two transactions to compete for real unique constraints and verify replay for the same key, conflict for different refund keys, and absence of partial or duplicate data. Focused Resource Server tests send Bearer tokens through the real security filter chain while mocking only the decoder boundary.
+Business-flow integration tests use prepared JWT authentication to exercise controllers, services, domain, repositories, Hibernate, and temporary PostgreSQL. Concurrent tests force two transactions to compete for real unique constraints and verify recovery without partial or duplicate data. Focused Resource Server tests exercise the real security chain with a mocked decoder.
+
+`JwtMerchantIsolationIntegrationTests` additionally sends genuinely signed Bearer tokens through the real decoder, claim converter, HTTP layer, and PostgreSQL. It verifies ownership in both directions, merchant-scoped pagination, payment and refund idempotency, ignored spoofed merchant headers/query parameters, and rejection without persistence. Its temporary signing authority is not the running Keycloak instance. Both test merchants deliberately share a subject and have all business scopes so these tests isolate ownership rather than scope authorization.
+
+The current identity model is one Keycloak client per merchant: validated `azp` becomes the merchant ID, not `sub`. Renaming a client changes that identity; supporting several clients for one merchant would require a separate mapping design. Header and query values cannot override it. Endpoint scope enforcement remains pending.
 
 For a new payment, the controller returns `201 Created` and a `Location` header, including when the financial result is `DECLINED`. An identical retry returns `200 OK` with `Idempotency-Replayed: true`; changed content under the same key returns `409 Conflict`. Query, list, refund, and event-history routes preserve merchant isolation.
 
