@@ -1,5 +1,6 @@
 package io.github.tawfikmetwally.payments;
 
+import static io.github.tawfikmetwally.payments.JwtTestAuthentication.merchantJwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -15,7 +16,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import io.github.tawfikmetwally.payments.entity.PaymentEntity;
@@ -25,7 +25,6 @@ import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
 import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
 import io.github.tawfikmetwally.payments.repository.RefundJpaRepository;
 
-@ActiveProfiles("demo-no-auth")
 @Import(TestcontainersConfiguration.class)
 @AutoConfigureMockMvc
 @SpringBootTest
@@ -69,7 +68,7 @@ class PaymentQueryIntegrationTests {
                 BASE_TIME);
 
         mockMvc.perform(get(ENDPOINT + "/{paymentId}", payment.getId())
-                        .header("X-Demo-Merchant-Id", MERCHANT_A))
+                        .with(merchantJwt(MERCHANT_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(payment.getId().toString()))
                 .andExpect(jsonPath("$.merchantReference").value("ORDER-OWN-001"))
@@ -88,7 +87,7 @@ class PaymentQueryIntegrationTests {
                 BASE_TIME);
 
         mockMvc.perform(get(ENDPOINT + "/{paymentId}", payment.getId())
-                        .header("X-Demo-Merchant-Id", MERCHANT_B))
+                        .with(merchantJwt(MERCHANT_B)))
                 .andExpect(status().isNotFound())
                 .andExpect(content().string(""));
     }
@@ -103,7 +102,7 @@ class PaymentQueryIntegrationTests {
                 PaymentStatus.DECLINED, BASE_TIME.plusSeconds(120));
 
         mockMvc.perform(get(ENDPOINT)
-                        .header("X-Demo-Merchant-Id", MERCHANT_A))
+                        .with(merchantJwt(MERCHANT_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(2))
                 .andExpect(jsonPath("$.content[0].merchantReference")
@@ -123,7 +122,7 @@ class PaymentQueryIntegrationTests {
                 PaymentStatus.APPROVED, BASE_TIME.plusSeconds(60));
 
         mockMvc.perform(get(ENDPOINT)
-                        .header("X-Demo-Merchant-Id", MERCHANT_A))
+                        .with(merchantJwt(MERCHANT_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].merchantReference")
                         .value("ORDER-NEWEST"))
@@ -138,7 +137,7 @@ class PaymentQueryIntegrationTests {
         savePaymentsForPagination();
 
         mockMvc.perform(get(ENDPOINT)
-                        .header("X-Demo-Merchant-Id", MERCHANT_A)
+                        .with(merchantJwt(MERCHANT_A))
                         .param("page", "0")
                         .param("size", "2"))
                 .andExpect(status().isOk())
@@ -151,7 +150,7 @@ class PaymentQueryIntegrationTests {
                 .andExpect(jsonPath("$.totalPages").value(3));
 
         mockMvc.perform(get(ENDPOINT)
-                        .header("X-Demo-Merchant-Id", MERCHANT_A)
+                        .with(merchantJwt(MERCHANT_A))
                         .param("page", "1")
                         .param("size", "2"))
                 .andExpect(status().isOk())
@@ -163,7 +162,7 @@ class PaymentQueryIntegrationTests {
                 .andExpect(jsonPath("$.totalPages").value(3));
 
         mockMvc.perform(get(ENDPOINT)
-                        .header("X-Demo-Merchant-Id", MERCHANT_A)
+                        .with(merchantJwt(MERCHANT_A))
                         .param("page", "2")
                         .param("size", "2"))
                 .andExpect(status().isOk())
@@ -184,7 +183,7 @@ class PaymentQueryIntegrationTests {
                 PaymentStatus.APPROVED, BASE_TIME.plusSeconds(120));
 
         mockMvc.perform(get(ENDPOINT)
-                        .header("X-Demo-Merchant-Id", MERCHANT_A)
+                        .with(merchantJwt(MERCHANT_A))
                         .param("status", "APPROVED"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
@@ -205,7 +204,7 @@ class PaymentQueryIntegrationTests {
                 PaymentStatus.APPROVED, BASE_TIME.plusSeconds(120));
 
         mockMvc.perform(get(ENDPOINT)
-                        .header("X-Demo-Merchant-Id", MERCHANT_A)
+                        .with(merchantJwt(MERCHANT_A))
                         .param("page", "4")
                         .param("size", "2"))
                 .andExpect(status().isOk())

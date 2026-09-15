@@ -1,11 +1,10 @@
 package io.github.tawfikmetwally.payments.controller;
 
+import static io.github.tawfikmetwally.payments.JwtTestAuthentication.merchantJwt;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -24,11 +23,14 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import io.github.tawfikmetwally.payments.config.SecurityConfiguration;
 import io.github.tawfikmetwally.payments.domain.Money;
 import io.github.tawfikmetwally.payments.domain.Payment;
 import io.github.tawfikmetwally.payments.enums.PaymentStatus;
@@ -43,6 +45,7 @@ import io.github.tawfikmetwally.payments.service.ListPaymentsQuery;
 import io.github.tawfikmetwally.payments.service.ListPaymentsResult;
 import io.github.tawfikmetwally.payments.service.ListPaymentsService;
 
+@Import(SecurityConfiguration.class)
 @WebMvcTest(PaymentController.class)
 class PaymentControllerTests {
 
@@ -55,6 +58,9 @@ class PaymentControllerTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private JwtDecoder jwtDecoder;
 
     @MockitoBean
     private CreatePaymentService createPaymentService;
@@ -213,7 +219,7 @@ class PaymentControllerTests {
                 .thenReturn(payment(PaymentStatus.APPROVED));
 
         mockMvc.perform(get(ENDPOINT + "/" + PAYMENT_ID)
-                        .with(user(MERCHANT_ID))
+                        .with(merchantJwt(MERCHANT_ID))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
@@ -235,7 +241,7 @@ class PaymentControllerTests {
                 .thenThrow(new PaymentNotFoundException());
 
         mockMvc.perform(get(ENDPOINT + "/" + PAYMENT_ID)
-                        .with(user(MERCHANT_ID))
+                        .with(merchantJwt(MERCHANT_ID))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound());
 
@@ -246,7 +252,7 @@ class PaymentControllerTests {
     @Test
     void rejectsMalformedPaymentIdWithoutCallingGetService() throws Exception {
         mockMvc.perform(get(ENDPOINT + "/not-a-uuid")
-                        .with(user(MERCHANT_ID))
+                        .with(merchantJwt(MERCHANT_ID))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest());
 
@@ -269,7 +275,7 @@ class PaymentControllerTests {
                         1));
 
         mockMvc.perform(get(ENDPOINT)
-                        .with(user(MERCHANT_ID))
+                        .with(merchantJwt(MERCHANT_ID))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
@@ -304,7 +310,7 @@ class PaymentControllerTests {
                         3));
 
         mockMvc.perform(get(ENDPOINT)
-                        .with(user(MERCHANT_ID))
+                        .with(merchantJwt(MERCHANT_ID))
                         .queryParam("page", "2")
                         .queryParam("size", "5")
                         .queryParam("status", "DECLINED")
@@ -323,7 +329,7 @@ class PaymentControllerTests {
     @Test
     void rejectsNegativePageWithoutCallingListService() throws Exception {
         mockMvc.perform(get(ENDPOINT)
-                        .with(user(MERCHANT_ID))
+                        .with(merchantJwt(MERCHANT_ID))
                         .queryParam("page", "-1")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest());
@@ -335,7 +341,7 @@ class PaymentControllerTests {
     @ValueSource(ints = { 0, 101 })
     void rejectsSizeOutsideAllowedRangeWithoutCallingListService(int size) throws Exception {
         mockMvc.perform(get(ENDPOINT)
-                        .with(user(MERCHANT_ID))
+                        .with(merchantJwt(MERCHANT_ID))
                         .queryParam("size", Integer.toString(size))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest());
@@ -346,7 +352,7 @@ class PaymentControllerTests {
     @Test
     void rejectsUnknownStatusWithoutCallingListService() throws Exception {
         mockMvc.perform(get(ENDPOINT)
-                        .with(user(MERCHANT_ID))
+                        .with(merchantJwt(MERCHANT_ID))
                         .queryParam("status", "UNKNOWN")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest());
@@ -366,7 +372,6 @@ class PaymentControllerTests {
     @Test
     void rejectsUnauthenticatedRequestWithoutCallingService() throws Exception {
         mockMvc.perform(post(ENDPOINT)
-                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_JSON)
                         .header("Idempotency-Key", IDEMPOTENCY_KEY)
@@ -378,8 +383,7 @@ class PaymentControllerTests {
 
     private MockHttpServletRequestBuilder authenticatedRequest() {
         return post(ENDPOINT)
-                .with(user(MERCHANT_ID))
-                .with(csrf())
+                .with(merchantJwt(MERCHANT_ID))
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.APPLICATION_JSON);
     }

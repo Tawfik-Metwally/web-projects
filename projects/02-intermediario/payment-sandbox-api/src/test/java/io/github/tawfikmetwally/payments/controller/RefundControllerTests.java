@@ -1,11 +1,10 @@
 package io.github.tawfikmetwally.payments.controller;
 
+import static io.github.tawfikmetwally.payments.JwtTestAuthentication.merchantJwt;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -19,11 +18,14 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import io.github.tawfikmetwally.payments.config.SecurityConfiguration;
 import io.github.tawfikmetwally.payments.domain.Money;
 import io.github.tawfikmetwally.payments.domain.Refund;
 import io.github.tawfikmetwally.payments.enums.RefundStatus;
@@ -34,6 +36,7 @@ import io.github.tawfikmetwally.payments.service.CreateRefundCommand;
 import io.github.tawfikmetwally.payments.service.CreateRefundResult;
 import io.github.tawfikmetwally.payments.service.CreateRefundService;
 
+@Import(SecurityConfiguration.class)
 @WebMvcTest(RefundController.class)
 class RefundControllerTests {
 
@@ -49,6 +52,9 @@ class RefundControllerTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private JwtDecoder jwtDecoder;
 
     @MockitoBean
     private CreateRefundService createRefundService;
@@ -104,7 +110,7 @@ class RefundControllerTests {
     @Test
     void rejectsMissingIdempotencyKeyWithoutCallingService() throws Exception {
         mockMvc.perform(baseRequest("CUSTOMER_REQUEST")
-                        .with(user(MERCHANT_ID)))
+                        .with(merchantJwt(MERCHANT_ID)))
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(createRefundService);
@@ -154,8 +160,7 @@ class RefundControllerTests {
     @Test
     void rejectsMalformedPaymentIdWithoutCallingService() throws Exception {
         mockMvc.perform(post("/api/v1/payments/not-a-uuid/refunds")
-                        .with(user(MERCHANT_ID))
-                        .with(csrf())
+                        .with(merchantJwt(MERCHANT_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Idempotency-Key", IDEMPOTENCY_KEY)
                         .content("{\"reason\":\"CUSTOMER_REQUEST\"}"))
@@ -175,13 +180,12 @@ class RefundControllerTests {
 
     private MockHttpServletRequestBuilder authenticatedRequest(String reason) {
         return baseRequest(reason)
-                .with(user(MERCHANT_ID))
+                .with(merchantJwt(MERCHANT_ID))
                 .header("Idempotency-Key", IDEMPOTENCY_KEY);
     }
 
     private MockHttpServletRequestBuilder baseRequest(String reason) {
         return post(ENDPOINT)
-                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.APPLICATION_JSON)
                 .content("{\"reason\":\"" + reason + "\"}");

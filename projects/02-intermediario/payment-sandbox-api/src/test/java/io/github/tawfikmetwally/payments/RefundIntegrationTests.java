@@ -1,5 +1,6 @@
 package io.github.tawfikmetwally.payments;
 
+import static io.github.tawfikmetwally.payments.JwtTestAuthentication.merchantJwt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -34,7 +35,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -49,7 +49,6 @@ import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
 import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
 import io.github.tawfikmetwally.payments.repository.RefundJpaRepository;
 
-@ActiveProfiles("demo-no-auth")
 @Import(TestcontainersConfiguration.class)
 @AutoConfigureMockMvc
 @SpringBootTest
@@ -137,7 +136,7 @@ class RefundIntegrationTests {
                 .isPresent();
 
         MvcResult historyResult = mockMvc.perform(get(historyEndpoint(paymentId))
-                        .header("X-Demo-Merchant-Id", MERCHANT_A))
+                        .with(merchantJwt(MERCHANT_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3))
                 .andExpect(jsonPath("$[2].eventType")
@@ -283,7 +282,7 @@ class RefundIntegrationTests {
         UUID paymentId = createApprovedPayment("payment-key-private-history");
 
         mockMvc.perform(get(historyEndpoint(paymentId))
-                        .header("X-Demo-Merchant-Id", MERCHANT_B))
+                        .with(merchantJwt(MERCHANT_B)))
                 .andExpect(status().isNotFound());
 
         assertPersistedCounts(1, 0, 2, 1);
@@ -365,7 +364,7 @@ class RefundIntegrationTests {
         MvcResult result = mockMvc.perform(post(PAYMENTS_ENDPOINT)
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_JSON)
-                        .header("X-Demo-Merchant-Id", MERCHANT_A)
+                        .with(merchantJwt(MERCHANT_A))
                         .header("Idempotency-Key", idempotencyKey)
                         .content("""
                                 {
@@ -392,7 +391,7 @@ class RefundIntegrationTests {
         return post(PAYMENTS_ENDPOINT + "/{paymentId}/refunds", paymentId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.APPLICATION_JSON)
-                .header("X-Demo-Merchant-Id", merchantId)
+                .with(merchantJwt(merchantId))
                 .header("Idempotency-Key", idempotencyKey)
                 .content("{\"reason\":\"" + reason + "\"}");
     }

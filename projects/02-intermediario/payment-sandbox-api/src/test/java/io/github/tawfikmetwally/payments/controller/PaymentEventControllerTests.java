@@ -1,11 +1,11 @@
 package io.github.tawfikmetwally.payments.controller;
 
+import static io.github.tawfikmetwally.payments.JwtTestAuthentication.merchantJwt;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -18,16 +18,20 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import io.github.tawfikmetwally.payments.config.SecurityConfiguration;
 import io.github.tawfikmetwally.payments.enums.PaymentEventType;
 import io.github.tawfikmetwally.payments.enums.PaymentStatus;
 import io.github.tawfikmetwally.payments.exception.PaymentNotFoundException;
 import io.github.tawfikmetwally.payments.service.GetPaymentHistoryService;
 import io.github.tawfikmetwally.payments.service.PaymentHistoryEntry;
 
+@Import(SecurityConfiguration.class)
 @WebMvcTest(PaymentEventController.class)
 class PaymentEventControllerTests {
 
@@ -43,6 +47,9 @@ class PaymentEventControllerTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private JwtDecoder jwtDecoder;
 
     @MockitoBean
     private GetPaymentHistoryService getPaymentHistoryService;
@@ -69,7 +76,7 @@ class PaymentEventControllerTests {
                 .thenReturn(history);
 
         mockMvc.perform(get(ENDPOINT)
-                        .with(user(MERCHANT_ID))
+                        .with(merchantJwt(MERCHANT_ID))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(
@@ -97,7 +104,7 @@ class PaymentEventControllerTests {
         when(getPaymentHistoryService.getHistory(PAYMENT_ID, MERCHANT_ID))
                 .thenThrow(new PaymentNotFoundException());
 
-        mockMvc.perform(get(ENDPOINT).with(user(MERCHANT_ID)))
+        mockMvc.perform(get(ENDPOINT).with(merchantJwt(MERCHANT_ID)))
                 .andExpect(status().isNotFound());
 
         verify(getPaymentHistoryService).getHistory(PAYMENT_ID, MERCHANT_ID);
@@ -107,7 +114,7 @@ class PaymentEventControllerTests {
     @Test
     void rejectsMalformedPaymentIdWithoutCallingService() throws Exception {
         mockMvc.perform(get("/api/v1/payments/not-a-uuid/events")
-                        .with(user(MERCHANT_ID)))
+                        .with(merchantJwt(MERCHANT_ID)))
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(getPaymentHistoryService);

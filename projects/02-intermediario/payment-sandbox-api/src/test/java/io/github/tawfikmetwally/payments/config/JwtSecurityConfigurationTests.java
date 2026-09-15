@@ -11,14 +11,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 import java.util.Currency;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
+import org.springframework.security.oauth2.jwt.BadJwtException;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -33,22 +37,24 @@ import io.github.tawfikmetwally.payments.service.CreatePaymentService;
 import io.github.tawfikmetwally.payments.service.GetPaymentService;
 import io.github.tawfikmetwally.payments.service.ListPaymentsService;
 
-@ActiveProfiles("demo-no-auth")
-@Import(DemoSecurityConfiguration.class)
+@Import(SecurityConfiguration.class)
 @WebMvcTest(PaymentController.class)
-class DemoSecurityConfigurationTests {
+class JwtSecurityConfigurationTests {
 
     private static final String ENDPOINT = "/api/v1/payments";
-    private static final String MERCHANT_HEADER = "X-Demo-Merchant-Id";
-    private static final String MERCHANT_ID = "merchant-a";
-    private static final String IDEMPOTENCY_KEY = "idem-demo-123";
+    private static final String MERCHANT_ID = "merchant-a-client";
+    private static final String IDEMPOTENCY_KEY = "idem-jwt-123";
+    private static final String VALID_TOKEN = "valid-token";
     private static final UUID PAYMENT_ID =
             UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
-    private static final Instant NOW = Instant.parse("2026-09-06T18:00:00Z");
+    private static final Instant NOW = Instant.parse("2026-09-14T18:00:00Z");
     private static final Currency BRL = Currency.getInstance("BRL");
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private JwtDecoder jwtDecoder;
 
     @MockitoBean
     private CreatePaymentService createPaymentService;
@@ -60,75 +66,80 @@ class DemoSecurityConfigurationTests {
     private ListPaymentsService listPaymentsService;
 
     @Test
-    void rejectsMissingDemoMerchantHeaderBeforeCallingService() throws Exception {
+    void rejectsRequestWithoutBearerTokenBeforeCallingService()
+            throws Exception {
         mockMvc.perform(validRequest())
                 .andExpect(status().isUnauthorized())
-                .andExpect(header().doesNotExist("WWW-Authenticate"));
+                .andExpect(header().exists(HttpHeaders.WWW_AUTHENTICATE));
 
         verifyNoInteractions(createPaymentService);
     }
 
     @Test
-    void rejectsBlankDemoMerchantHeaderBeforeCallingService() throws Exception {
-        mockMvc.perform(validRequest().header(MERCHANT_HEADER, "   "))
+    void ignoresRemovedDemoMerchantHeader() throws Exception {
+        mockMvc.perform(validRequest()
+                        .header("X-Demo-Merchant-Id", MERCHANT_ID))
                 .andExpect(status().isUnauthorized());
 
         verifyNoInteractions(createPaymentService);
     }
 
     @Test
-    void rejectsDemoMerchantHeaderLongerThanDatabaseLimitBeforeCallingService()
-            throws Exception {
-        mockMvc.perform(validRequest().header(MERCHANT_HEADER, "m".repeat(101)))
-                .andExpect(status().isUnauthorized());
+    void rejectsTokenThatJwtDecoderCannotValidate() throws Exception {
+        when(jwtDecoder.decode("invalid-token"))
+                .thenThrow(new BadJwtException("invalid token"));
+
+        mockMvc.perform(withBearer(validRequest(), "invalid-token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().exists(HttpHeaders.WWW_AUTHENTICATE));
 
         verifyNoInteractions(createPaymentService);
     }
 
     @Test
-    void createsPrincipalFromValidDemoMerchantHeader() throws Exception {
+    void mapsAuthorizedPartyClaimToMerchantPrincipal() throws Exception {
+        when(jwtDecoder.decode(VALID_TOKEN)).thenReturn(validJwt());
         CreatePaymentCommand expectedCommand = new CreatePaymentCommand(
                 MERCHANT_ID,
                 IDEMPOTENCY_KEY,
                 10_000,
                 BRL,
-                "ORDER-DEMO-123",
+                "ORDER-JWT-123",
                 "tok_approved");
-        Payment payment = Payment.restore(
-                PAYMENT_ID,
-                MERCHANT_ID,
-                "ORDER-DEMO-123",
-                new Money(10_000, BRL),
-                PaymentStatus.APPROVED,
-                NOW,
-                NOW);
+        Payment payment = payment();
         when(createPaymentService.create(expectedCommand))
                 .thenReturn(new CreatePaymentResult(payment, false));
 
-        mockMvc.perform(validRequest().header(MERCHANT_HEADER, MERCHANT_ID))
+        mockMvc.perform(withBearer(validRequest(), VALID_TOKEN))
                 .andExpect(status().isCreated())
-                .andExpect(header().string("Location", ENDPOINT + "/" + PAYMENT_ID));
+                .andExpect(header().string(
+                        "Location",
+                        ENDPOINT + "/" + PAYMENT_ID));
 
         verify(createPaymentService).create(expectedCommand);
         verifyNoMoreInteractions(createPaymentService);
     }
 
     @Test
-    void createsPrincipalFromValidDemoMerchantHeaderForPaymentLookup() throws Exception {
-        Payment payment = Payment.restore(
-                PAYMENT_ID,
-                MERCHANT_ID,
-                "ORDER-DEMO-123",
-                new Money(10_000, BRL),
-                PaymentStatus.APPROVED,
-                NOW,
-                NOW);
-        when(getPaymentService.getById(PAYMENT_ID, MERCHANT_ID))
-                .thenReturn(payment);
+    void rejectsMissingMerchantClaimBeforeCallingService() throws Exception {
+        Jwt token = Jwt.withTokenValue(VALID_TOKEN)
+                .header("alg", "RS256").subject("service-account").build();
+        when(jwtDecoder.decode(VALID_TOKEN)).thenReturn(token);
+        mockMvc.perform(withBearer(validRequest(), VALID_TOKEN))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(createPaymentService);
+    }
 
-        mockMvc.perform(get(ENDPOINT + "/" + PAYMENT_ID)
-                        .header(MERCHANT_HEADER, MERCHANT_ID)
-                        .accept(MediaType.APPLICATION_JSON))
+    @Test
+    void mapsAuthorizedPartyClaimForPaymentLookup() throws Exception {
+        when(jwtDecoder.decode(VALID_TOKEN)).thenReturn(validJwt());
+        when(getPaymentService.getById(PAYMENT_ID, MERCHANT_ID))
+                .thenReturn(payment());
+
+        mockMvc.perform(withBearer(
+                        get(ENDPOINT + "/" + PAYMENT_ID)
+                                .accept(MediaType.APPLICATION_JSON),
+                        VALID_TOKEN))
                 .andExpect(status().isOk());
 
         verify(getPaymentService).getById(PAYMENT_ID, MERCHANT_ID);
@@ -144,9 +155,43 @@ class DemoSecurityConfigurationTests {
                         {
                           "amount": 10000,
                           "currency": "BRL",
-                          "merchantReference": "ORDER-DEMO-123",
+                          "merchantReference": "ORDER-JWT-123",
                           "paymentMethodToken": "tok_approved"
                         }
                         """);
+    }
+
+    private MockHttpServletRequestBuilder withBearer(
+            MockHttpServletRequestBuilder request,
+            String token) {
+        return request.header(
+                HttpHeaders.AUTHORIZATION,
+                "Bearer " + token);
+    }
+
+    private Jwt validJwt() {
+        return Jwt.withTokenValue(VALID_TOKEN)
+                .header("alg", "RS256")
+                .subject("internal-service-account-id")
+                .issuer("http://localhost:8180/realms/payment-sandbox")
+                .audience(List.of("payment-sandbox-api"))
+                .claim("azp", MERCHANT_ID)
+                .claim(
+                        "scope",
+                        "payments:create payments:read refunds:create")
+                .issuedAt(NOW.minusSeconds(30))
+                .expiresAt(NOW.plusSeconds(270))
+                .build();
+    }
+
+    private Payment payment() {
+        return Payment.restore(
+                PAYMENT_ID,
+                MERCHANT_ID,
+                "ORDER-JWT-123",
+                new Money(10_000, BRL),
+                PaymentStatus.APPROVED,
+                NOW,
+                NOW);
     }
 }

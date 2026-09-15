@@ -1,5 +1,6 @@
 package io.github.tawfikmetwally.payments;
 
+import static io.github.tawfikmetwally.payments.JwtTestAuthentication.merchantJwt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -30,7 +31,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -46,7 +46,6 @@ import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
 import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
 import io.github.tawfikmetwally.payments.repository.RefundJpaRepository;
 
-@ActiveProfiles("demo-no-auth")
 @Import(TestcontainersConfiguration.class)
 @AutoConfigureMockMvc
 @SpringBootTest
@@ -218,7 +217,7 @@ class PaymentCreationIntegrationTests {
         return post(ENDPOINT)
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.APPLICATION_JSON)
-                .header("X-Demo-Merchant-Id", MERCHANT_ID)
+                .with(merchantJwt(MERCHANT_ID))
                 .header("Idempotency-Key", idempotencyKey)
                 .content("""
                         {

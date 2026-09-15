@@ -6,19 +6,19 @@ A containerized REST API for simulating payment creation, queries, idempotency, 
 
 The project is under active development. Payment creation, merchant-scoped queries, paginated listing, full refunds, and chronological event history are implemented. Creation and refund operations persist their state, events, and idempotency records within transactional boundaries.
 
-Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak now has a versioned realm, confidential merchant clients, API audience, and business scopes. This is not a production-ready payment API: Spring Security JWT validation, real merchant identity mapping, endpoint authorization, and standardized error responses are still pending.
+Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: endpoint authorization, hardened tenant mapping, broader security tests, and standardized error responses are still pending.
 
 ## Current verification
 
-The latest validated clean build passed 164 tests with no failures, errors, or skipped tests:
+The current reports contain 170 passing tests with no failures, errors, or skipped tests: verified with a clean rebuild, including real signed-token decoder tests.
 
 - domain, simulator, request-validation, mapping, hashing, service, and transaction tests;
 - Spring MVC controller tests with mocked service dependencies;
-- demo-profile security tests for missing, invalid, and valid merchant headers;
+- Resource Server security tests for missing, invalid, and valid Bearer tokens;
 - PostgreSQL persistence tests with Testcontainers;
 - full application integration tests for payment creation, queries, refunds, replay, conflicts, history, merchant isolation, and concurrent idempotency.
 
-The integration suite connects the HTTP layer, demo identity filter, controllers, services, domain, repositories, Hibernate, and temporary PostgreSQL. Concurrent tests force two transactions to compete for real unique constraints and verify replay for the same key, conflict for different refund keys, and absence of partial or duplicate data. These tests do not establish real JWT validation.
+The integration suite connects a JWT-authenticated HTTP layer, controllers, services, domain, repositories, Hibernate, and temporary PostgreSQL. Concurrent tests force two transactions to compete for real unique constraints and verify replay for the same key, conflict for different refund keys, and absence of partial or duplicate data. Focused Resource Server tests send Bearer tokens through the real security filter chain while mocking only the decoder boundary.
 
 For a new payment, the controller returns `201 Created` and a `Location` header, including when the financial result is `DECLINED`. An identical retry returns `200 OK` with `Idempotency-Replayed: true`; changed content under the same key returns `409 Conflict`. Query, list, refund, and event-history routes preserve merchant isolation.
 
@@ -41,12 +41,11 @@ payments
 |-- repository       Spring Data repositories
 |-- enums
 |-- exception
-|-- security         explicit local demo identity filter
 |-- domain           Payment and Money business rules
 `-- simulator        deterministic provider simulation
 ```
 
-`Payment` remains separate from `PaymentEntity`; this package arrangement does not merge business rules with persistence mappings. The current `security` package contains only the explicit local demonstration filter. Keycloak can issue the target tokens, but real JWT resource-server configuration in the API remains pending.
+`Payment` remains separate from `PaymentEntity`; this package arrangement does not merge business rules with persistence mappings. `SecurityConfiguration` defines the stateless Resource Server boundary and maps Keycloak's `azp` claim to `Principal.getName()`.
 
 Tests live in `src/test/java` and mirror the package of the component they test. Application tests, cross-repository persistence integration tests, and shared Testcontainers support remain in the base package. JUnit runs the tests, Mockito replaces selected dependencies, and AssertJ checks results.
 
@@ -140,9 +139,11 @@ send a `scope` form field during normal token requests. Sending `scope` only ask
 for an already allowed scope; it never changes client permissions. Keycloak rejects
 a request for a scope that is not linked to that client.
 
-Token issuance proves the authorization-server configuration only. Until the
-Spring Security resource server is configured, these tokens do not yet authorize
-requests to the Payment Sandbox API.
+The API validates the token signature with Keycloak's JWK Set, requires the
+`payment-sandbox` issuer and `payment-sandbox-api` audience, and uses `azp`
+as the initial merchant identity. Endpoint-specific scope checks are introduced
+separately; at this stage every valid merchant token can reach every `/api/**`
+route.
 
 ### Optional demonstration database (Dev Container)
 
@@ -190,26 +191,24 @@ Choose the database when starting Spring Boot inside the **Dev Container**:
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
 ```
 
-For local Postman verification before the real JWT phase, activate the separate,
-explicit `demo-no-auth` profile together with `demo`:
+For an authenticated Postman verification against the demonstration database,
+start only the `demo` profile:
 
 ```bash
-./mvnw spring-boot:run -Dspring-boot.run.profiles=demo,demo-no-auth
+./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
 ```
 
-Stop the running application with **Ctrl+C** before switching. Subsequent switches
-do not require container rebuilds. The demo profile changes the datasource only:
-it does not disable security, enable JWT, or clear any data. The separate
-`demo-no-auth` profile installs a stateless filter that accepts
-`X-Demo-Merchant-Id` and exposes it as the `Principal` expected by the controller.
-This header is untrusted demonstration input, not authentication, and must never
-be enabled as a production security mechanism.
+Stop the running application with **Ctrl+C** before switching databases.
+Subsequent switches do not require container rebuilds. The `demo` profile
+changes only the datasource; JWT validation remains active and no header can
+choose the merchant identity.
 
-Example local creation request:
+First obtain a token from the Keycloak token endpoint described above. Then send
+its `access_token` as the Bearer credential:
 
 ```http
 POST http://localhost:8080/api/v1/payments
-X-Demo-Merchant-Id: merchant-demo
+Authorization: Bearer <access_token>
 Idempotency-Key: payment-demo-001
 Accept: application/json
 Content-Type: application/json
@@ -228,16 +227,20 @@ The first request returns HTTP 201. Repeating the same request returns HTTP 200
 with `Idempotency-Replayed: true`; changing the content while keeping the same key
 returns HTTP 409.
 
+Spring Security validates the token before the Controller runs. The token's
+`azp` claim becomes `Principal.getName()`, so records created by
+`merchant-a-client` use that client ID as their current `merchant_id`.
+
 This profile workflow targets `dev`, not the packaged `api` service, which still
 uses explicit `SPRING_DATASOURCE_*` variables. Do not set those variables in the
 Dev Container: they take precedence over profile files. Tests continue to use
 Testcontainers connection details; do not activate `demo` for the test suite.
 
-The demo profiles were validated manually against `payments_demo`: Flyway applied
+The demonstration database was validated manually against `payments_demo`: Flyway applied
 V1, Hibernate accepted the schema, and Postman verified payment queries, pagination,
 full refund, replay, conflicts, history, and merchant isolation. PostgreSQL and
-DBeaver confirmed that replay and rejected requests do not duplicate data. Real
-authenticated HTTP verification remains deferred until the API validates JWTs.
+DBeaver confirmed that replay and rejected requests do not duplicate data. The
+complete real-token security checkpoint remains scheduled for the end of Phase 10.
 
 ### Addresses and current limitations
 
@@ -254,7 +257,7 @@ database port. Database names and credentials come from `.env`; use the dedicate
 `payments_demo` role and `DEMO_DB_PASSWORD` when connecting DBeaver to the
 `payments_demo` database.
 
-Health reports application health, not completion of all payment features. `POST /api/v1/payments` is not a browser GET page. Outside the explicit `demo-no-auth` profile, Spring Security defaults remain active. Keycloak can issue machine tokens, but obtaining one does not yet enable an authenticated payment request because Resource Server validation and JWT-to-merchant mapping remain pending.
+Health reports application health, not completion of all payment features. `POST /api/v1/payments` is not a browser GET page. All `/api/**` routes require a valid Bearer JWT. Scope-based endpoint authorization is still pending, so authentication currently proves who the merchant client is but does not yet restrict which operation that client can perform.
 
 ### Run tests
 
@@ -279,7 +282,7 @@ Select one test class; each line below is an independent command:
 ./mvnw '-Dtest=CreatePaymentServiceTests' test
 ./mvnw '-Dtest=PaymentControllerTests' test
 ./mvnw '-Dtest=PersistenceIntegrationTests' test
-./mvnw '-Dtest=DemoSecurityConfigurationTests' test
+./mvnw '-Dtest=JwtSecurityConfigurationTests' test
 ./mvnw '-Dtest=PaymentCreationIntegrationTests' test
 ./mvnw '-Dtest=KeycloakRealmConfigurationTests' test
 ```
@@ -292,7 +295,7 @@ Select only the merchant-isolation test:
 
 Domain tests check rules without mocks. Service tests mock repositories, controller tests mock the service, and persistence integration tests use a real temporary database. Selecting tests limits execution; Maven may still compile other sources.
 
-Check both `BUILD SUCCESS` and `Tests run / Failures / Errors / Skipped`. Per-class summaries appear in the terminal; detailed reports are generated in `target/surefire-reports/`. The latest validated full suite contains 164 test executions.
+Check both `BUILD SUCCESS` and `Tests run / Failures / Errors / Skipped`. Per-class summaries appear in the terminal; detailed reports are generated in `target/surefire-reports/`. The current suite contains 170 test executions.
 
 ### Stop the development environment
 

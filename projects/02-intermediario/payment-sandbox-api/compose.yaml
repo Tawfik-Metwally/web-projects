@@ -11,6 +11,8 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${APP_DB_NAME}
       SPRING_DATASOURCE_USERNAME: ${APP_DB_USER}
       SPRING_DATASOURCE_PASSWORD: ${APP_DB_PASSWORD}
+      KEYCLOAK_ISSUER_URI: http://localhost:8180/realms/payment-sandbox
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/payment-sandbox/protocol/openid-connect/certs
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,6 +54,8 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KC_HEALTH_ENABLED: "true"
+      KC_HOSTNAME: http://localhost:8180
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       MERCHANT_A_CLIENT_SECRET: ${MERCHANT_A_CLIENT_SECRET}
       MERCHANT_B_CLIENT_SECRET: ${MERCHANT_B_CLIENT_SECRET}
     volumes:
