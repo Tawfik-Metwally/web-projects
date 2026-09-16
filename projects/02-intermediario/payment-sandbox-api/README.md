@@ -6,11 +6,11 @@ A containerized REST API for simulating payment creation, queries, idempotency, 
 
 The project is under active development. Payment creation, merchant-scoped queries, paginated listing, full refunds, and chronological event history are implemented. Creation and refund operations persist their state, events, and idempotency records within transactional boundaries.
 
-Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: broader security tests and standardized error responses are still pending.
+Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: standardized error responses, observability, and delivery hardening remain planned.
 
 ## Current verification
 
-The current reports contain 240 passing tests with no failures, errors, or skipped tests, verified with `./mvnw -q clean test` in an isolated temporary project copy inside the Dev Container. This avoids interference with the IDE's shared build output.
+The current reports contain 258 passing tests with no failures, errors, or skipped tests, verified with `./mvnw -q clean test` in an isolated temporary project copy inside the Dev Container. This avoids interference with the IDE's shared build output.
 
 - domain, simulator, request-validation, mapping, hashing, service, and transaction tests;
 - Spring MVC controller tests with mocked service dependencies;
@@ -24,11 +24,13 @@ Business-flow integration tests use prepared JWT authentication to exercise cont
 
 `JwtScopeAuthorizationIntegrationTests` adds 49 signed-token/PostgreSQL cases: all five endpoints with exact, missing, empty, unrelated, lookalike, or combined scopes; absent and invalid tokens; unconfigured routes; authorization before body parsing and ownership checks; and unchanged database state after rejection. These tokens use a temporary test issuer, not live Keycloak.
 
+`JwtAuthenticationIntegrationTests` adds 18 cases: expired tokens, incorrect issuers and incorrect audiences through all five HTTP endpoints; identity and scope tampering after signing; and authentication isolation across requests sharing a simulated session. Rejections preserve the existing payment and related row counts. The author also confirmed the live Keycloak/Postman/DBeaver checkpoint on 2026-09-16.
+
 The current identity model is one Keycloak client per merchant: validated `azp` becomes the merchant ID, not `sub`. Renaming a client changes that identity; supporting several clients for one merchant would require a separate mapping design. Header and query values cannot override it. Endpoint scope enforcement is implemented for all five business routes.
 
 For a new payment, the controller returns `201 Created` and a `Location` header, including when the financial result is `DECLINED`. An identical retry returns `200 OK` with `Idempotency-Replayed: true`; changed content under the same key returns `409 Conflict`. Query, list, refund, and event-history routes preserve merchant isolation.
 
-The complete payment and refund flow was also verified manually with Postman against the persistent `payments_demo` database. DBeaver confirmed one payment, one refund, three events, and two idempotency records for the approved-and-refunded scenario, while replay and rejected attempts created no duplicates.
+The author reported successful manual verification with real Keycloak tokens in Postman and persistent `payments_demo` data in DBeaver: authentication, endpoint scopes, cross-merchant isolation, payment/refund replay, and expected final row counts. Both manual Bearer token entry and Postman's OAuth 2.0 Client Credentials helper were confirmed. See the [reproducible walkthrough](docs/local-testing.md).
 
 ## Code organization
 
@@ -66,169 +68,41 @@ Tests live in `src/test/java` and mirror the package of the component they test.
 
 ## Local development
 
-Requirements:
+Start with the [complete local testing guide](docs/local-testing.md). It contains:
 
-- Docker Desktop running with Linux containers;
-- Visual Studio Code with the Dev Containers extension for the development workflow.
+- environment preparation and demo database setup;
+- every Postman field for manual Bearer tokens and OAuth 2.0 Client Credentials;
+- payment, refund, history, pagination, and security checks with expected responses;
+- DBeaver connection fields and a read-only verification query;
+- token-expiry, connection, and persistence troubleshooting.
 
-### Prepare the environment
+### Quick start for an already configured environment
 
-Open a local terminal in `web/projects/02-intermediario/payment-sandbox-api`, not the parent repository.
+Requirements: Docker Desktop with Linux containers and VS Code Dev Containers.
+For first-time setup, follow the guide before running these commands.
 
-If `.env` does not exist yet, create it from `.env.example`. In Windows PowerShell:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Or in Bash:
-
-```bash
-cp .env.example .env
-```
-
-Replace every placeholder before starting the containers. Do not overwrite an existing `.env` or commit it. Database initialization uses these values when the PostgreSQL data volume is first created; editing `.env` later does not automatically update existing database users or passwords.
-
-`MERCHANT_A_CLIENT_SECRET` and `MERCHANT_B_CLIENT_SECRET` must be independent random values. They authenticate backend systems, are substituted into the local Keycloak realm import, and must never be committed.
-
-### Start the development environment
-
-Open this project directory in VS Code and run **Dev Containers: Reopen in Container**. VS Code combines `compose.yaml` and `.devcontainer/compose.extend.yaml` to start `dev`, `postgres`, and `keycloak`. The development override excludes the packaged `api` service with the `packaged-api` profile.
-
-In the Dev Container's Bash terminal, the project is mounted at `/workspace`. Start Spring Boot:
-
-```bash
-./mvnw spring-boot:run
-```
-
-Keep that terminal open while using the API. Stop Spring Boot with **Ctrl+C** in the same terminal; this does not stop PostgreSQL or Keycloak.
-
-Source edits do not require rebuilding the Dev Container. Stop and restart the application to load changes. Use **Dev Containers: Rebuild Container** when changing the development image or its features.
-
-### Keycloak realm and machine clients
-
-The Keycloak container mounts `docker/keycloak/payment-sandbox-realm.json` and
-starts with `--import-realm`. On the first start, it creates the
-`payment-sandbox` realm. Later starts preserve an existing realm instead of
-overwriting it.
-
-The local realm defines these clients and default scopes:
-
-| Client | Purpose | Default business scopes |
-|---|---|---|
-| `payment-sandbox-api` | bearer-only API audience | none |
-| `merchant-a-client` | Merchant A backend | `payments:create`, `payments:read`, `refunds:create` |
-| `merchant-b-client` | Merchant B backend | `payments:create`, `payments:read` |
-
-Both merchant clients use Client Credentials with service accounts. Standard,
-implicit, and direct-access-grant flows are disabled. Their access tokens expire
-after five minutes and carry `payment-sandbox-api` as audience. Merchant B cannot
-request `refunds:create` because that scope is not linked to its client.
-
-Token endpoint:
-
-```text
-POST http://localhost:8180/realms/payment-sandbox/protocol/openid-connect/token
-Content-Type: application/x-www-form-urlencoded
-```
-
-Form fields:
-
-```text
-grant_type=client_credentials
-client_id=<merchant client ID>
-client_secret=<matching private value from .env>
-```
-
-The business scopes are linked as default client scopes, so clients do not need to
-send a `scope` form field during normal token requests. Sending `scope` only asks
-for an already allowed scope; it never changes client permissions. Keycloak rejects
-a request for a scope that is not linked to that client.
-
-The API validates the token signature with Keycloak's JWK Set, requires the
-`payment-sandbox` issuer and `payment-sandbox-api` audience, and uses `azp`
-as the merchant identity. Endpoint authorization requires the exact business scope:
-
-| Method | Path | Required scope |
-|---|---|---|
-| POST | `/api/v1/payments` | `payments:create` |
-| GET | `/api/v1/payments` | `payments:read` |
-| GET | `/api/v1/payments/{paymentId}` | `payments:read` |
-| GET | `/api/v1/payments/{paymentId}/events` | `payments:read` |
-| POST | `/api/v1/payments/{paymentId}/refunds` | `refunds:create` |
-
-Spring converts token scopes to `SCOPE_` authorities. Missing/invalid authentication
-returns 401; insufficient scope returns 403 before the controller. Ownership is
-checked afterward: with the required scope, a missing or cross-merchant payment
-returns 404. Other `/api/**` method/path combinations are denied by default.
-Merchant B's configured token cannot invoke refunds, including for its own payment.
-
-### Optional demonstration database (Dev Container)
-
-The same PostgreSQL container can host `payments_demo`, owned by the dedicated
-`payments_demo` role, alongside the development and Keycloak databases. This is
-a separate logical database, not another container. Setup scripts use fixed demo
-names and refuse collisions with configured development/Keycloak/admin names.
-
-1. Add `DEMO_DB_PASSWORD` to your existing local `.env`, using your own password.
-   Do not replace the file or change the existing database credentials.
-2. Stop Spring Boot. From a **local host terminal** in the project directory,
-   update the PostgreSQL container so it receives the new variable and script mount:
-
-   ```bash
-   docker compose --env-file .env -f compose.yaml -f .devcontainer/compose.extend.yaml up -d postgres
-   ```
-
-   This can recreate the PostgreSQL container, briefly interrupting connections,
-   but preserves its existing data volume. Never delete the shared volume to
-   prepare or reset the demo database.
-3. Run **Dev Containers: Rebuild Container** in VS Code once so `dev` receives the
-   new environment variables and no longer inherits `SPRING_DATASOURCE_*`.
-4. For an existing PostgreSQL volume, run this once in the **Dev Container's Bash
-   terminal** at `/workspace`:
-
-   ```bash
-   docker compose --env-file .env -f compose.yaml -f .devcontainer/compose.extend.yaml exec postgres sh /opt/payment-sandbox/init-demo-database.sh
-   ```
-
-   The script creates the role and database if absent. It does not delete records,
-   change an existing password, or recreate an existing database. For a fresh
-   volume, the initial setup invokes it automatically when `DEMO_DB_PASSWORD` is set.
-   Flyway creates the application tables when the application connects; no separate
-   demo migration is needed.
-
-Choose the database when starting Spring Boot inside the **Dev Container**:
-
-```bash
-# Development database
-./mvnw spring-boot:run
-```
-
-```bash
-# Demonstration database
-./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
-```
-
-For an authenticated Postman verification against the demonstration database,
-start only the `demo` profile:
+Open this project folder in VS Code and select **Dev Containers: Reopen in Container**.
+In the Dev Container's Bash terminal at `/workspace`:
 
 ```bash
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
 ```
 
-Stop the running application with **Ctrl+C** before switching databases.
-Subsequent switches do not require container rebuilds. The `demo` profile
-changes only the datasource; JWT validation remains active and no header can
-choose the merchant identity.
+This uses `payments_demo` with JWT validation enabled. Keep the terminal open;
+stop the application with **Ctrl+C**. The removed `demo-no-auth` profile must not
+be used. Without the `demo` profile, the application uses the development database.
 
-First obtain a token from the Keycloak token endpoint described above. Then send
-its `access_token` as the Bearer credential:
+- API: [localhost:8080](http://localhost:8080)
+- Public health check: [localhost:8080/actuator/health](http://localhost:8080/actuator/health)
+- Keycloak: [localhost:8180](http://localhost:8180)
+
+Request a token from Keycloak as described in the guide, then send it to the API.
+A first payment request with a fresh idempotency key is:
 
 ```http
 POST http://localhost:8080/api/v1/payments
 Authorization: Bearer <access_token>
-Idempotency-Key: payment-demo-001
-Accept: application/json
+Idempotency-Key: quickstart-001
 Content-Type: application/json
 ```
 
@@ -236,94 +110,32 @@ Content-Type: application/json
 {
   "amount": 10000,
   "currency": "BRL",
-  "merchantReference": "ORDER-DEMO-001",
+  "merchantReference": "ORDER-QUICKSTART",
   "paymentMethodToken": "tok_approved"
 }
 ```
 
-The first request returns HTTP 201. Repeating the same request returns HTTP 200
-with `Idempotency-Replayed: true`; changing the content while keeping the same key
-returns HTTP 409.
-
-Spring Security validates the token before the Controller runs. The token's
-`azp` claim becomes `Principal.getName()`, so records created by
-`merchant-a-client` use that client ID as their current `merchant_id`.
-
-This profile workflow targets `dev`, not the packaged `api` service, which still
-uses explicit `SPRING_DATASOURCE_*` variables. Do not set those variables in the
-Dev Container: they take precedence over profile files. Tests continue to use
-Testcontainers connection details; do not activate `demo` for the test suite.
-
-The demonstration database was validated manually against `payments_demo`: Flyway applied
-V1, Hibernate accepted the schema, and Postman verified payment queries, pagination,
-full refund, replay, conflicts, history, and merchant isolation. PostgreSQL and
-DBeaver confirmed that replay and rejected requests do not duplicate data. The
-complete real-token security checkpoint remains scheduled for the end of Phase 10.
-
-### Addresses and current limitations
-
-With Spring Boot running and port 8080 forwarded by VS Code:
-
-- API base address: [localhost:8080](http://localhost:8080);
-- health endpoint: [localhost:8080/actuator/health](http://localhost:8080/actuator/health);
-- Keycloak administration: [localhost:8180](http://localhost:8180), using the local administrator credentials configured in `.env`.
-
-PostgreSQL is reachable inside the Compose network at `postgres:5432`. When the
-development override is active, it is also bound only to `127.0.0.1:5432` on the
-host for local tools such as DBeaver. The base Compose file does not publish the
-database port. Database names and credentials come from `.env`; use the dedicated
-`payments_demo` role and `DEMO_DB_PASSWORD` when connecting DBeaver to the
-`payments_demo` database.
-
-Health reports application health, not completion of all payment features. `POST /api/v1/payments` is not a browser GET page. Business API routes require a valid Bearer JWT and the scope listed above; unconfigured API routes are denied.
+Expected: 201 and an approved payment. An unchanged retry returns 200 without a
+second payment. Never put real tokens or credentials in committed files.
 
 ### Run tests
 
-Run these commands in the Dev Container's Bash terminal at `/workspace`. Spring Boot does not need to be running. Integration tests use disposable PostgreSQL containers through Testcontainers, not the persistent development database.
-
-Complete suite:
-
-```bash
-./mvnw test
-```
-
-Clean rebuild, for example after moving or deleting Java classes:
+In the Dev Container, without the demo profile:
 
 ```bash
 ./mvnw clean test
 ```
 
-Select one test class; each line below is an independent command:
+The suite uses disposable PostgreSQL containers. Spring Boot does not need to be
+running. Check the exit status, test totals, and reports in `target/surefire-reports/`.
+The last verified suite has 258 executions, all passing.
 
-```bash
-./mvnw '-Dtest=PaymentTests' test
-./mvnw '-Dtest=CreatePaymentServiceTests' test
-./mvnw '-Dtest=PaymentControllerTests' test
-./mvnw '-Dtest=PersistenceIntegrationTests' test
-./mvnw '-Dtest=JwtSecurityConfigurationTests' test
-./mvnw '-Dtest=PaymentCreationIntegrationTests' test
-./mvnw '-Dtest=KeycloakRealmConfigurationTests' test
-```
+To stop the environment without deleting database data, run this in a **host
+terminal** in the project folder after stopping Spring Boot:
 
-Select only the merchant-isolation test:
-
-```bash
-./mvnw '-Dtest=PersistenceIntegrationTests#findsPaymentOnlyForItsMerchant' test
-```
-
-Domain tests check rules without mocks. Service tests mock repositories, controller tests mock the service, and persistence integration tests use a real temporary database. Selecting tests limits execution; Maven may still compile other sources.
-
-Check both `BUILD SUCCESS` and `Tests run / Failures / Errors / Skipped`. Per-class summaries appear in the terminal; detailed reports are generated in `target/surefire-reports/`. The current suite contains 170 test executions.
-
-### Stop the development environment
-
-After stopping Spring Boot, close the Dev Container window; `shutdownAction: stopCompose` requests that VS Code stop its Compose environment. To stop it manually, use a **local host terminal** in the project directory:
-
-```bash
+```powershell
 docker compose --env-file .env -f compose.yaml -f .devcontainer/compose.extend.yaml stop
 ```
-
-This stops containers without deleting the database volume.
 
 ## Packaged application workflow
 

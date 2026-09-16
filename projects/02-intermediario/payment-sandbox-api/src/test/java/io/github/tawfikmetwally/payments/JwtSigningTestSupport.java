@@ -3,6 +3,7 @@ package io.github.tawfikmetwally.payments;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.text.ParseException;
 import java.time.Instant;
 import java.util.Date;
 
@@ -13,6 +14,7 @@ import com.nimbusds.jose.crypto.RSASSASigner;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
+import com.nimbusds.jose.util.Base64URL;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.sun.net.httpserver.HttpServer;
@@ -71,6 +73,17 @@ public final class JwtSigningTestSupport implements AutoCloseable {
     public String tokenWithForeignSignature(String merchantId) throws JOSEException {
         RSAKey foreignKey = new RSAKeyGenerator(2048).keyID(KEY_ID).generate();
         return sign(foreignKey, merchantId, ISSUER, AUDIENCE, 300, ALL_SCOPES);
+    }
+
+    /** Changes the payload while retaining the original header and signature. */
+    public String tamperClaim(String signedToken, String claim, Object value) throws ParseException {
+        SignedJWT original = SignedJWT.parse(signedToken);
+        JWTClaimsSet altered = new JWTClaimsSet.Builder(original.getJWTClaimsSet())
+                .claim(claim, value)
+                .build();
+        return original.getHeader().toBase64URL() + "."
+                + Base64URL.encode(altered.toString()) + "."
+                + original.getSignature();
     }
 
     private String sign(RSAKey key, Object merchantId, String issuer,
