@@ -102,7 +102,13 @@ class RefundControllerTests {
     @Test
     void rejectsBlankReasonWithoutCallingService() throws Exception {
         mockMvc.perform(authenticatedRequest(" "))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verifyNoInteractions(createRefundService);
     }
@@ -111,7 +117,13 @@ class RefundControllerTests {
     void rejectsMissingIdempotencyKeyWithoutCallingService() throws Exception {
         mockMvc.perform(baseRequest("CUSTOMER_REQUEST")
                         .with(merchantJwt(MERCHANT_ID)))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verifyNoInteractions(createRefundService);
     }
@@ -125,6 +137,12 @@ class RefundControllerTests {
 
         mockMvc.perform(authenticatedRequest("DUPLICATE_CHARGE"))
                 .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Conflict"))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty())
                 .andExpect(header().doesNotExist("Idempotency-Replayed"));
 
         verify(createRefundService).create(expectedCommand);
@@ -138,7 +156,13 @@ class RefundControllerTests {
                 .thenThrow(new PaymentNotFoundException());
 
         mockMvc.perform(authenticatedRequest("CUSTOMER_REQUEST"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Not Found"))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").value("Payment was not found."));
 
         verify(createRefundService).create(expectedCommand);
         verifyNoMoreInteractions(createRefundService);
@@ -151,7 +175,13 @@ class RefundControllerTests {
                 .thenThrow(new PaymentNotRefundableException());
 
         mockMvc.perform(authenticatedRequest("CUSTOMER_REQUEST"))
-                .andExpect(status().isConflict());
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Conflict"))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verify(createRefundService).create(expectedCommand);
         verifyNoMoreInteractions(createRefundService);
@@ -164,7 +194,13 @@ class RefundControllerTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Idempotency-Key", IDEMPOTENCY_KEY)
                         .content("{\"reason\":\"CUSTOMER_REQUEST\"}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verifyNoInteractions(createRefundService);
     }
@@ -175,6 +211,16 @@ class RefundControllerTests {
                         .header("Idempotency-Key", IDEMPOTENCY_KEY))
                 .andExpect(status().isUnauthorized());
 
+        verifyNoInteractions(createRefundService);
+    }
+
+
+    @Test
+    void identifiesInvalidReasonWithoutCallingService() throws Exception {
+        mockMvc.perform(authenticatedRequest(" "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("reason"))
+                .andExpect(jsonPath("$.errors[0].message").value("Must not be blank."));
         verifyNoInteractions(createRefundService);
     }
 

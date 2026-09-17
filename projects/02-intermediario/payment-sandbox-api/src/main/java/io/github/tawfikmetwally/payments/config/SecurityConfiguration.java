@@ -11,6 +11,8 @@ import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 
+import tools.jackson.databind.ObjectMapper;
+
 @Configuration
 public class SecurityConfiguration {
 
@@ -19,8 +21,11 @@ public class SecurityConfiguration {
     @Bean
     SecurityFilterChain apiSecurityFilterChain(
             HttpSecurity http,
-            JwtAuthenticationConverter jwtAuthenticationConverter)
+            JwtAuthenticationConverter jwtAuthenticationConverter,
+            ObjectMapper objectMapper)
             throws Exception {
+        var authenticationEntryPoint = new ProblemAuthenticationEntryPoint(objectMapper);
+        var accessDeniedHandler = new ProblemAccessDeniedHandler(objectMapper);
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .requestCache(AbstractHttpConfigurer::disable)
@@ -39,7 +44,12 @@ public class SecurityConfiguration {
                             .hasAuthority("SCOPE_refunds:create")
                         .requestMatchers("/api/**").denyAll()
                         .anyRequest().permitAll())
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler))
                 .oauth2ResourceServer(resourceServer -> resourceServer
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler)
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(token -> {
                             Object merchant = token.getClaims().get(MERCHANT_ID_CLAIM);
                             if (!(merchant instanceof String id)

@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import io.github.tawfikmetwally.payments.entity.PaymentEntity;
@@ -89,7 +90,11 @@ class PaymentQueryIntegrationTests {
         mockMvc.perform(get(ENDPOINT + "/{paymentId}", payment.getId())
                         .with(merchantJwt(MERCHANT_B)))
                 .andExpect(status().isNotFound())
-                .andExpect(content().string(""));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Payment was not found."))
+                .andExpect(jsonPath("$.merchantId").doesNotExist())
+                .andExpect(jsonPath("$.merchantReference").doesNotExist());
     }
 
     @Test

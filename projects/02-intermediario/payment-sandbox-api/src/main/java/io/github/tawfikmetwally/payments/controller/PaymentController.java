@@ -9,7 +9,6 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -31,9 +30,6 @@ import io.github.tawfikmetwally.payments.dto.request.CreatePaymentRequest;
 import io.github.tawfikmetwally.payments.dto.response.PaymentPageResponse;
 import io.github.tawfikmetwally.payments.dto.response.PaymentResponse;
 import io.github.tawfikmetwally.payments.enums.PaymentStatus;
-import io.github.tawfikmetwally.payments.exception.IdempotencyConflictException;
-import io.github.tawfikmetwally.payments.exception.PaymentNotFoundException;
-import io.github.tawfikmetwally.payments.exception.UnsupportedPaymentMethodTokenException;
 import io.github.tawfikmetwally.payments.service.CreatePaymentCommand;
 import io.github.tawfikmetwally.payments.service.CreatePaymentResult;
 import io.github.tawfikmetwally.payments.service.CreatePaymentService;
@@ -155,18 +151,4 @@ public class PaymentController {
                 payment.getUpdatedAt());
     }
 
-    @ExceptionHandler(UnsupportedPaymentMethodTokenException.class)
-    public ResponseEntity<Void> handleUnsupportedPaymentMethodToken() {
-        return ResponseEntity.badRequest().build();
-    }
-
-    @ExceptionHandler(IdempotencyConflictException.class)
-    public ResponseEntity<Void> handleIdempotencyConflict() {
-        return ResponseEntity.status(HttpStatus.CONFLICT).build();
-    }
-
-    @ExceptionHandler(PaymentNotFoundException.class)
-    public ResponseEntity<Void> handlePaymentNotFound() {
-        return ResponseEntity.notFound().build();
-    }
 }

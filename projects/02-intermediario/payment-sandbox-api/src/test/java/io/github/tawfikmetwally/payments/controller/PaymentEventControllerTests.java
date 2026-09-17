@@ -105,7 +105,13 @@ class PaymentEventControllerTests {
                 .thenThrow(new PaymentNotFoundException());
 
         mockMvc.perform(get(ENDPOINT).with(merchantJwt(MERCHANT_ID)))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Not Found"))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").value("Payment was not found."));
 
         verify(getPaymentHistoryService).getHistory(PAYMENT_ID, MERCHANT_ID);
         verifyNoMoreInteractions(getPaymentHistoryService);
@@ -115,7 +121,13 @@ class PaymentEventControllerTests {
     void rejectsMalformedPaymentIdWithoutCallingService() throws Exception {
         mockMvc.perform(get("/api/v1/payments/not-a-uuid/events")
                         .with(merchantJwt(MERCHANT_ID)))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verifyNoInteractions(getPaymentHistoryService);
     }

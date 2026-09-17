@@ -6,11 +6,11 @@ A containerized REST API for simulating payment creation, queries, idempotency, 
 
 The project is under active development. Payment creation, merchant-scoped queries, paginated listing, full refunds, and chronological event history are implemented. Creation and refund operations persist their state, events, and idempotency records within transactional boundaries.
 
-Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: standardized error responses, observability, and delivery hardening remain planned.
+Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: handled MVC errors and security rejections now use Problem Details; observability and delivery hardening remain planned.
 
 ## Current verification
 
-The current reports contain 258 passing tests with no failures, errors, or skipped tests, verified with `./mvnw -q clean test` in an isolated temporary project copy inside the Dev Container. This avoids interference with the IDE's shared build output.
+The current reports contain 274 passing tests with no failures, errors, or skipped tests, verified with `./mvnw -q clean test` in an isolated temporary project copy inside the Dev Container. This avoids interference with the IDE's shared build output.
 
 - domain, simulator, request-validation, mapping, hashing, service, and transaction tests;
 - Spring MVC controller tests with mocked service dependencies;
@@ -128,7 +128,7 @@ In the Dev Container, without the demo profile:
 
 The suite uses disposable PostgreSQL containers. Spring Boot does not need to be
 running. Check the exit status, test totals, and reports in `target/surefire-reports/`.
-The last verified suite has 258 executions, all passing.
+The last verified suite has 274 executions, all passing.
 
 To stop the environment without deleting database data, run this in a **host
 terminal** in the project folder after stopping Spring Boot:

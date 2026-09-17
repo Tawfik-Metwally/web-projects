@@ -6,7 +6,6 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,9 +21,6 @@ import jakarta.validation.constraints.Size;
 import io.github.tawfikmetwally.payments.domain.Refund;
 import io.github.tawfikmetwally.payments.dto.request.CreateRefundRequest;
 import io.github.tawfikmetwally.payments.dto.response.RefundResponse;
-import io.github.tawfikmetwally.payments.exception.IdempotencyConflictException;
-import io.github.tawfikmetwally.payments.exception.PaymentNotFoundException;
-import io.github.tawfikmetwally.payments.exception.PaymentNotRefundableException;
 import io.github.tawfikmetwally.payments.service.CreateRefundCommand;
 import io.github.tawfikmetwally.payments.service.CreateRefundResult;
 import io.github.tawfikmetwally.payments.service.CreateRefundService;
@@ -79,18 +75,4 @@ public class RefundController {
                 refund.getCreatedAt());
     }
 
-    @ExceptionHandler(IdempotencyConflictException.class)
-    public ResponseEntity<Void> handleIdempotencyConflict() {
-        return ResponseEntity.status(HttpStatus.CONFLICT).build();
-    }
-
-    @ExceptionHandler(PaymentNotFoundException.class)
-    public ResponseEntity<Void> handlePaymentNotFound() {
-        return ResponseEntity.notFound().build();
-    }
-
-    @ExceptionHandler(PaymentNotRefundableException.class)
-    public ResponseEntity<Void> handlePaymentNotRefundable() {
-        return ResponseEntity.status(HttpStatus.CONFLICT).build();
-    }
 }

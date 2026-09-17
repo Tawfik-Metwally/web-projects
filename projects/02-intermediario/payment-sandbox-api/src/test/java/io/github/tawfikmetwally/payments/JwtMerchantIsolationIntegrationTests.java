@@ -106,13 +106,19 @@ class JwtMerchantIsolationIntegrationTests {
                         .header("X-Merchant-Id", owner)
                         .queryParam("merchantId", owner))
                 .andExpect(status().isNotFound())
-                .andExpect(content().string(""));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Payment was not found."));
         mockMvc.perform(bearer(get(ENDPOINT + "/" + paymentId + "/events"), outsider))
                 .andExpect(status().isNotFound())
-                .andExpect(content().string(""));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Payment was not found."));
         mockMvc.perform(bearer(get(ENDPOINT + "/" + UUID.randomUUID()), outsider))
                 .andExpect(status().isNotFound())
-                .andExpect(content().string(""));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Payment was not found."));
         assertCounts(1, 0, 2, 1);
     }
 

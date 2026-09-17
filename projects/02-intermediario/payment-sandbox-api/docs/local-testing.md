@@ -339,8 +339,90 @@ returns `APPROVED`.
 
 A declined payment can still return 201: HTTP creation success is different from
 financial approval. Unconfigured API method/path combinations are denied.
-Some current error responses have empty bodies; standardized error bodies are
-not implemented yet.
+
+## Error response checkpoint
+
+Handled MVC errors and security rejections use `application/problem+json`.
+The body contains `status`, `title`, `detail`, and `instance`. The default
+`type: about:blank` may be omitted by the configured serializer. Field validation
+errors also include an `errors` array containing only `field` and `message`.
+Rejected values, tokens, and internal exception diagnostics are not included.
+
+Example for a negative payment amount:
+
+```json
+{
+  "status": 400,
+  "title": "Bad Request",
+  "detail": "Request validation failed.",
+  "instance": "/api/v1/payments",
+  "errors": [
+    {
+      "field": "amount",
+      "message": "Must be greater than zero."
+    }
+  ]
+}
+```
+
+Security handlers preserve the Bearer `WWW-Authenticate` challenge. It may
+include `resource_metadata`; do not compare the entire header to a fixed string.
+Invalid tokens include `invalid_token`, and insufficient scopes include
+`insufficient_scope`. Authentication protocol errors classified as
+`invalid_request` retain HTTP 400 rather than being forced to 401.
+
+Run the following checks against a restarted API using the `demo` profile.
+Obtain fresh A/B tokens as described above; tokens expire after 300 seconds.
+Use **Body > none** for GET and **Body > raw > JSON** for POST, with
+`Content-Type: application/json`. Use a fresh key prefix for each run.
+
+1. GET `/api/v1/payments` with **No Auth**, then with **Bearer Token**
+   set to `token-invalido`: both return 401 with
+   `A valid access token is required.`. Remove any manually added Authorization
+   header for the No Auth case.
+2. With A, POST a payment using key `phase11-001-create` and this body:
+
+   ```json
+   {
+     "amount": -100,
+     "currency": "BRL",
+     "merchantReference": "PHASE11-001",
+     "paymentMethodToken": "tok_approved"
+   }
+   ```
+
+   Expect 400 and a field error for `amount`. Change amount to 10000 and resend:
+   expect 201 and APPROVED. Save the returned UUID as ID_A.
+3. Repeat unchanged: 200 and `Idempotency-Replayed: true`. Change amount to
+   11000 under the same key: 409 with
+   `Idempotency key was already used with different request data.`.
+4. With A and a separate key such as `phase11-001-invalid`, check these
+   independent invalid requests. Restore valid fields between checks:
+   - Body containing only `{`: 400, `Request content or parameters are invalid.`.
+   - Valid payment body but missing Idempotency-Key: 400.
+   - Valid payment body with currency USD: 400, `Only BRL is supported.`.
+   - GET `/api/v1/payments?page=-1&size=101`: 400 with page/size errors;
+     `instance` excludes the query string.
+   - GET `/api/v1/payments/not-a-uuid`: 400.
+5. With B, GET `/api/v1/payments/ID_A`: 404, `Payment was not found.`.
+   Compare with an absent UUID: same status and detail, without merchant/payment
+   data. The instance naturally differs with the requested path.
+6. With B, POST `/api/v1/payments/ID_A/refunds`, key
+   `phase11-001-refund-b`, body `{"reason":"CUSTOMER_REQUEST"}`:
+   403, `You do not have permission to perform this operation.`.
+   Scope authorization happens before the ownership check.
+7. With A, POST the same refund path with key `phase11-001-refund-a` and
+   body `{"reason":" "}`: 400 with a reason field error. Restore
+   `{"reason":"CUSTOMER_REQUEST"}` and resend under that key: 201, COMPLETED.
+8. Repeat the successful refund unchanged: 200 replay. Change only its key to
+   `phase11-001-refund-second`: 409, `Payment is not eligible for a refund.`.
+9. With A, GET the payment: 200, REFUNDED. GET its `/events`: three events
+   for creation, approval, and refund.
+
+These checks create one payment and one refund in the persistent demo database;
+they do not require deleting existing data. In every error response, verify the
+HTTP status matches the body status and inspect the response Content-Type.
+Report failures using the step, status, and response body without credentials.
 
 ## Inspect persistence with DBeaver
 

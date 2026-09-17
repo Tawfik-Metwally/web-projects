@@ -126,7 +126,13 @@ class PaymentControllerTests {
         mockMvc.perform(authenticatedRequest()
                         .header("Idempotency-Key", IDEMPOTENCY_KEY)
                         .content(body(amount, "BRL", "tok_approved")))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verifyNoInteractions(createPaymentService);
     }
@@ -136,7 +142,13 @@ class PaymentControllerTests {
         mockMvc.perform(authenticatedRequest()
                         .header("Idempotency-Key", IDEMPOTENCY_KEY)
                         .content(body(null, "BRL", "tok_approved")))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verifyNoInteractions(createPaymentService);
     }
@@ -145,7 +157,13 @@ class PaymentControllerTests {
     void rejectsMissingIdempotencyKeyWithoutCallingService() throws Exception {
         mockMvc.perform(authenticatedRequest()
                         .content(body(10_000L, "BRL", "tok_approved")))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verifyNoInteractions(createPaymentService);
     }
@@ -155,7 +173,13 @@ class PaymentControllerTests {
         mockMvc.perform(authenticatedRequest()
                         .header("Idempotency-Key", " ")
                         .content(body(10_000L, "BRL", "tok_approved")))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verifyNoInteractions(createPaymentService);
     }
@@ -165,7 +189,13 @@ class PaymentControllerTests {
         mockMvc.perform(authenticatedRequest()
                         .header("Idempotency-Key", "k".repeat(256))
                         .content(body(10_000L, "BRL", "tok_approved")))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verifyNoInteractions(createPaymentService);
     }
@@ -176,7 +206,13 @@ class PaymentControllerTests {
         mockMvc.perform(authenticatedRequest()
                         .header("Idempotency-Key", IDEMPOTENCY_KEY)
                         .content(body(10_000L, currency, "tok_approved")))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verifyNoInteractions(createPaymentService);
     }
@@ -190,7 +226,13 @@ class PaymentControllerTests {
         mockMvc.perform(authenticatedRequest()
                         .header("Idempotency-Key", IDEMPOTENCY_KEY)
                         .content(body(10_000L, "BRL", "tok_unknown")))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verify(createPaymentService).create(expectedCommand);
         verifyNoMoreInteractions(createPaymentService);
@@ -206,6 +248,12 @@ class PaymentControllerTests {
                         .header("Idempotency-Key", IDEMPOTENCY_KEY)
                         .content(body(10_000L, "BRL", "tok_declined")))
                 .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Conflict"))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty())
                 .andExpect(header().doesNotExist("Location"))
                 .andExpect(header().doesNotExist("Idempotency-Replayed"));
 
@@ -243,7 +291,13 @@ class PaymentControllerTests {
         mockMvc.perform(get(ENDPOINT + "/" + PAYMENT_ID)
                         .with(merchantJwt(MERCHANT_ID))
                         .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Not Found"))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").value("Payment was not found."));
 
         verify(getPaymentService).getById(PAYMENT_ID, MERCHANT_ID);
         verifyNoMoreInteractions(getPaymentService);
@@ -254,7 +308,13 @@ class PaymentControllerTests {
         mockMvc.perform(get(ENDPOINT + "/not-a-uuid")
                         .with(merchantJwt(MERCHANT_ID))
                         .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verifyNoInteractions(getPaymentService);
     }
@@ -332,7 +392,13 @@ class PaymentControllerTests {
                         .with(merchantJwt(MERCHANT_ID))
                         .queryParam("page", "-1")
                         .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verifyNoInteractions(listPaymentsService);
     }
@@ -344,7 +410,13 @@ class PaymentControllerTests {
                         .with(merchantJwt(MERCHANT_ID))
                         .queryParam("size", Integer.toString(size))
                         .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verifyNoInteractions(listPaymentsService);
     }
@@ -355,7 +427,13 @@ class PaymentControllerTests {
                         .with(merchantJwt(MERCHANT_ID))
                         .queryParam("status", "UNKNOWN")
                         .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").doesNotExist())
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.instance").exists())
+                .andExpect(jsonPath("$.detail").isNotEmpty());
 
         verifyNoInteractions(listPaymentsService);
     }
@@ -378,6 +456,91 @@ class PaymentControllerTests {
                         .content(body(10_000L, "BRL", "tok_approved")))
                 .andExpect(status().isUnauthorized());
 
+        verifyNoInteractions(createPaymentService);
+    }
+
+
+    @Test
+    void reportsFieldRulesWithoutEchoingSensitiveValues() throws Exception {
+        String sensitiveToken = "private-token-" + "x".repeat(100);
+        mockMvc.perform(authenticatedRequest()
+                        .header("Idempotency-Key", IDEMPOTENCY_KEY)
+                        .header("Accept-Language", "pt-BR")
+                        .content(body(-1L, "BRL", sensitiveToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Request validation failed."))
+                .andExpect(jsonPath("$.instance").value(ENDPOINT))
+                .andExpect(jsonPath("$.errors.length()").value(2))
+                .andExpect(jsonPath("$.errors[0].field").value("amount"))
+                .andExpect(jsonPath("$.errors[0].message").value("Must be greater than zero."))
+                .andExpect(jsonPath("$.errors[1].field").value("paymentMethodToken"))
+                .andExpect(jsonPath("$.errors[1].message").value("Length is outside the allowed range."))
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString(sensitiveToken))))
+                .andExpect(jsonPath("$.errors[0].rejectedValue").doesNotExist());
+        verifyNoInteractions(createPaymentService);
+    }
+
+    @Test
+    void reportsInvalidHeaderWithoutEchoingItsValue() throws Exception {
+        mockMvc.perform(authenticatedRequest()
+                        .header("Idempotency-Key", "k".repeat(256))
+                        .content(body(10_000L, "BRL", "tok_approved")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("Idempotency-Key"))
+                .andExpect(jsonPath("$.errors[0].message").value("Length is outside the allowed range."))
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("k".repeat(256)))));
+        verifyNoInteractions(createPaymentService);
+    }
+
+    @Test
+    void reportsInvalidPaginationWithoutIncludingQueryString() throws Exception {
+        mockMvc.perform(get(ENDPOINT + "?page=-1&size=101")
+                        .with(merchantJwt(MERCHANT_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.instance").value(ENDPOINT))
+                .andExpect(jsonPath("$.errors[0].field").value("page"))
+                .andExpect(jsonPath("$.errors[1].field").value("size"));
+        verifyNoInteractions(listPaymentsService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "{", "", "{\"amount\":\"private-value\"}" })
+    void rejectsUnreadableBodyWithoutExposingParserDetails(String body) throws Exception {
+        mockMvc.perform(authenticatedRequest()
+                        .header("Idempotency-Key", IDEMPOTENCY_KEY)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value("Request content or parameters are invalid."))
+                .andExpect(jsonPath("$.exception").doesNotExist())
+                .andExpect(jsonPath("$.trace").doesNotExist())
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("private-value"))));
+        verifyNoInteractions(createPaymentService);
+    }
+
+    @Test
+    void rejectsUnsupportedMediaTypeWithProblemDetails() throws Exception {
+        mockMvc.perform(authenticatedRequest()
+                        .header("Idempotency-Key", IDEMPOTENCY_KEY)
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("not-json"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(415))
+                .andExpect(jsonPath("$.detail").value("Request media type is not supported."));
+        verifyNoInteractions(createPaymentService);
+    }
+
+    @Test
+    void preservesControlledCurrencyError() throws Exception {
+        mockMvc.perform(authenticatedRequest()
+                        .header("Idempotency-Key", IDEMPOTENCY_KEY)
+                        .content(body(10_000L, "USD", "tok_approved")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Only BRL is supported."));
         verifyNoInteractions(createPaymentService);
     }
 

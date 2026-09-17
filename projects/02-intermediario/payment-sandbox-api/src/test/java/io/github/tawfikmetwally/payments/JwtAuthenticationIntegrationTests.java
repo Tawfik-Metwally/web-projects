@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -123,7 +124,12 @@ class JwtAuthenticationIntegrationTests {
     void rejectsPermissionAddedAfterSigning() throws Exception {
         String original = SIGNING.tokenWithScopes(MERCHANT_A, "payments:read");
         mockMvc.perform(bearer(operation(Route.CREATE), original))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.title").value("Forbidden"))
+                .andExpect(jsonPath("$.detail").value("You do not have permission to perform this operation."))
+                .andExpect(jsonPath("$.instance").exists());
 
         String altered = SIGNING.tamperClaim(original, "scope", "payments:read payments:create");
         assertTamperedClaim(original, altered, "scope", "payments:read payments:create");
@@ -143,6 +149,11 @@ class JwtAuthenticationIntegrationTests {
 
         mockMvc.perform(operation(Route.GET).session(session))
                 .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").value("A valid access token is required."))
+                .andExpect(jsonPath("$.instance").exists())
                 .andExpect(header().exists(HttpHeaders.WWW_AUTHENTICATE));
 
         // A later valid token must identify B, not the merchant from the first request.
@@ -164,6 +175,11 @@ class JwtAuthenticationIntegrationTests {
     private void assertRejected(MockHttpServletRequestBuilder request) throws Exception {
         mockMvc.perform(request)
                 .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").value("A valid access token is required."))
+                .andExpect(jsonPath("$.instance").exists())
                 .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE,
                         containsString("invalid_token")));
         assertUnchanged();

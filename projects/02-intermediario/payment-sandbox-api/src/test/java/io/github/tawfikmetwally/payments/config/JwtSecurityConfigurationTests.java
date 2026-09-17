@@ -7,6 +7,8 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
@@ -18,17 +20,27 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.authentication.InsufficientAuthenticationException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.server.resource.BearerTokenError;
 import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+
+import tools.jackson.databind.ObjectMapper;
 
 import io.github.tawfikmetwally.payments.controller.PaymentController;
 import io.github.tawfikmetwally.payments.domain.Money;
@@ -56,6 +68,9 @@ class JwtSecurityConfigurationTests {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @MockitoBean
     private JwtDecoder jwtDecoder;
 
@@ -73,6 +88,11 @@ class JwtSecurityConfigurationTests {
             throws Exception {
         mockMvc.perform(validRequest())
                 .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").value("A valid access token is required."))
+                .andExpect(jsonPath("$.instance").exists())
                 .andExpect(header().exists(HttpHeaders.WWW_AUTHENTICATE));
 
         verifyNoInteractions(createPaymentService);
@@ -82,7 +102,12 @@ class JwtSecurityConfigurationTests {
     void ignoresRemovedDemoMerchantHeader() throws Exception {
         mockMvc.perform(validRequest()
                         .header("X-Demo-Merchant-Id", MERCHANT_ID))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").value("A valid access token is required."))
+                .andExpect(jsonPath("$.instance").exists());
 
         verifyNoInteractions(createPaymentService);
     }
@@ -94,6 +119,11 @@ class JwtSecurityConfigurationTests {
 
         mockMvc.perform(withBearer(validRequest(), "invalid-token"))
                 .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").value("A valid access token is required."))
+                .andExpect(jsonPath("$.instance").exists())
                 .andExpect(header().exists(HttpHeaders.WWW_AUTHENTICATE));
 
         verifyNoInteractions(createPaymentService);
@@ -129,7 +159,12 @@ class JwtSecurityConfigurationTests {
                 .header("alg", "RS256").subject("service-account").build();
         when(jwtDecoder.decode(VALID_TOKEN)).thenReturn(token);
         mockMvc.perform(withBearer(validRequest(), VALID_TOKEN))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").value("A valid access token is required."))
+                .andExpect(jsonPath("$.instance").exists());
         verifyNoInteractions(createPaymentService);
     }
 
@@ -157,8 +192,127 @@ class JwtSecurityConfigurationTests {
                 .claim("azp", merchant).build();
         when(jwtDecoder.decode(VALID_TOKEN)).thenReturn(token);
         mockMvc.perform(withBearer(validRequest(), VALID_TOKEN))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").value("A valid access token is required."))
+                .andExpect(jsonPath("$.instance").exists());
         verifyNoInteractions(createPaymentService, getPaymentService, listPaymentsService);
+    }
+
+
+    @ParameterizedTest
+    @ValueSource(strings = { "text/html", "*/*" })
+    void returnsProblemForMissingTokenRegardlessOfRequestedMediaType(String accept)
+            throws Exception {
+        mockMvc.perform(validRequest().accept(accept))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE,
+                        org.hamcrest.Matchers.startsWith("Bearer")))
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE,
+                        org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("error="))))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.instance").value(ENDPOINT));
+        verifyNoInteractions(jwtDecoder, createPaymentService);
+    }
+
+    @Test
+    void hidesDecoderDiagnosticsAndQueryValuesFromResponse() throws Exception {
+        String diagnostic = "private-decoder-diagnostic";
+        when(jwtDecoder.decode("private-token"))
+                .thenThrow(new BadJwtException(diagnostic));
+
+        mockMvc.perform(withBearer(validRequest().queryParam("secret", "private-query"),
+                        "private-token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE,
+                        org.hamcrest.Matchers.containsString("error=\"invalid_token\"")))
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE,
+                        org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("private-"))))
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE,
+                        org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("error_description"))))
+                .andExpect(jsonPath("$.instance").value(ENDPOINT))
+                .andExpect(jsonPath("$.detail").value("A valid access token is required."))
+                .andExpect(jsonPath("$.trace").doesNotExist())
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("private-"))));
+        verifyNoInteractions(createPaymentService);
+    }
+
+    @Test
+    void rejectsMalformedBearerBeforeCallingDecoder() throws Exception {
+        mockMvc.perform(withBearer(validRequest(), "bad token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE,
+                        org.hamcrest.Matchers.containsString("error=\"invalid_token\"")))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(401));
+        verifyNoInteractions(jwtDecoder, createPaymentService);
+    }
+
+    @Test
+    void returnsProblemWhenValidTokenLacksRequiredScope() throws Exception {
+        Jwt token = Jwt.withTokenValue(VALID_TOKEN)
+                .header("alg", "RS256")
+                .subject("service-account")
+                .claim("azp", MERCHANT_ID)
+                .claim("scope", "payments:read")
+                .build();
+        when(jwtDecoder.decode(VALID_TOKEN)).thenReturn(token);
+
+        mockMvc.perform(withBearer(validRequest(), VALID_TOKEN))
+                .andExpect(status().isForbidden())
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE,
+                        org.hamcrest.Matchers.containsString("insufficient_scope")))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.detail").value(
+                        "You do not have permission to perform this operation."))
+                .andExpect(jsonPath("$.instance").value(ENDPOINT))
+                .andExpect(jsonPath("$.merchantId").doesNotExist());
+        verifyNoInteractions(createPaymentService);
+    }
+
+    @Test
+    void preservesBadRequestForInvalidAuthenticationRequest() throws Exception {
+        var request = new MockHttpServletRequest("POST", ENDPOINT);
+        var response = new MockHttpServletResponse();
+        var exception = new OAuth2AuthenticationException(new BearerTokenError(
+                "invalid_request", HttpStatus.BAD_REQUEST, "private-diagnostic", null));
+
+        new ProblemAuthenticationEntryPoint(objectMapper).commence(request, response, exception);
+
+        org.assertj.core.api.Assertions.assertThat(response.getStatus()).isEqualTo(400);
+        org.assertj.core.api.Assertions.assertThat(response.getHeader(HttpHeaders.WWW_AUTHENTICATE))
+                .startsWith("Bearer")
+                .contains("error=\"invalid_request\"")
+                .doesNotContain("private-diagnostic", "error_description");
+        var body = objectMapper.readTree(response.getContentAsString());
+        org.assertj.core.api.Assertions.assertThat(body.path("status").asInt()).isEqualTo(400);
+        org.assertj.core.api.Assertions.assertThat(body.path("detail").asString())
+                .isEqualTo("The authentication request is invalid.");
+        org.assertj.core.api.Assertions.assertThat(response.getContentAsString())
+                .doesNotContain("private-diagnostic");
+    }
+
+    @Test
+    void leavesAlreadyCommittedResponsesUntouched() throws Exception {
+        var request = new MockHttpServletRequest("GET", ENDPOINT);
+        var response = new MockHttpServletResponse();
+        response.setStatus(202);
+        response.getWriter().write("already sent");
+        response.flushBuffer();
+
+        new ProblemAuthenticationEntryPoint(objectMapper).commence(request, response,
+                new InsufficientAuthenticationException("not authenticated"));
+        new ProblemAccessDeniedHandler(objectMapper).handle(request, response,
+                new AccessDeniedException("not allowed"));
+
+        org.assertj.core.api.Assertions.assertThat(response.getStatus()).isEqualTo(202);
+        org.assertj.core.api.Assertions.assertThat(response.getContentAsString()).isEqualTo("already sent");
+        org.assertj.core.api.Assertions.assertThat(response.getHeader(HttpHeaders.WWW_AUTHENTICATE)).isNull();
     }
 
     static Stream<Object> invalidMerchantClaims() {

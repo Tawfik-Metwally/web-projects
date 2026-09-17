@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.Arrays;
@@ -92,6 +94,11 @@ class JwtScopeAuthorizationIntegrationTests {
 
         if (!allowed) {
             result.andExpect(status().isForbidden())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                    .andExpect(jsonPath("$.status").value(403))
+                    .andExpect(jsonPath("$.title").value("Forbidden"))
+                    .andExpect(jsonPath("$.detail").value("You do not have permission to perform this operation."))
+                    .andExpect(jsonPath("$.instance").exists())
                     .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE,
                             containsString("insufficient_scope")));
             assertUnchanged();
@@ -127,6 +134,11 @@ class JwtScopeAuthorizationIntegrationTests {
         }
         mockMvc.perform(request)
                 .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").value("A valid access token is required."))
+                .andExpect(jsonPath("$.instance").exists())
                 .andExpect(header().exists(HttpHeaders.WWW_AUTHENTICATE));
         assertUnchanged();
     }
@@ -141,7 +153,12 @@ class JwtScopeAuthorizationIntegrationTests {
     void deniesUnconfiguredApiRoutesEvenWithAllScopes(HttpMethod method, String path)
             throws Exception {
         mockMvc.perform(bearer(request(method, path), SIGNING.token(MERCHANT)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.title").value("Forbidden"))
+                .andExpect(jsonPath("$.detail").value("You do not have permission to perform this operation."))
+                .andExpect(jsonPath("$.instance").exists());
         assertUnchanged();
     }
 
@@ -155,7 +172,12 @@ class JwtScopeAuthorizationIntegrationTests {
     void deniesMissingScopeBeforeParsingRequestBody() throws Exception {
         mockMvc.perform(bearer(operation(Route.CREATE, "malformed").content("{broken"),
                         SIGNING.tokenWithScopes(MERCHANT, "payments:read")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.title").value("Forbidden"))
+                .andExpect(jsonPath("$.detail").value("You do not have permission to perform this operation."))
+                .andExpect(jsonPath("$.instance").exists());
         assertUnchanged();
     }
 
@@ -165,7 +187,12 @@ class JwtScopeAuthorizationIntegrationTests {
         mockMvc.perform(bearer(operation(Route.REFUND, "outsider"),
                         SIGNING.tokenWithScopes("merchant-b-client",
                                 "payments:create payments:read")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.title").value("Forbidden"))
+                .andExpect(jsonPath("$.detail").value("You do not have permission to perform this operation."))
+                .andExpect(jsonPath("$.instance").exists());
         assertUnchanged();
     }
 
