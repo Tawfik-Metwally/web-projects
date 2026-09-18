@@ -16,6 +16,8 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 
 import tools.jackson.databind.ObjectMapper;
 
+import io.github.tawfikmetwally.payments.observability.TraceContext;
+
 public final class ProblemAccessDeniedHandler implements AccessDeniedHandler {
 
     private final BearerTokenAccessDeniedHandler delegate = new BearerTokenAccessDeniedHandler();
@@ -36,6 +38,7 @@ public final class ProblemAccessDeniedHandler implements AccessDeniedHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN,
                 "You do not have permission to perform this operation.");
         problem.setInstance(URI.create(request.getRequestURI()));
+        TraceContext.addTo(problem, request);
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         objectMapper.writeValue(response.getOutputStream(), problem);
     }

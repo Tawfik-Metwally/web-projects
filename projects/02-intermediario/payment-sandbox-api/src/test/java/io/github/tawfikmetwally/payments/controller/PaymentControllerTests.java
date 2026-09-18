@@ -37,6 +37,7 @@ import io.github.tawfikmetwally.payments.enums.PaymentStatus;
 import io.github.tawfikmetwally.payments.exception.IdempotencyConflictException;
 import io.github.tawfikmetwally.payments.exception.PaymentNotFoundException;
 import io.github.tawfikmetwally.payments.exception.UnsupportedPaymentMethodTokenException;
+import io.github.tawfikmetwally.payments.observability.TraceContext;
 import io.github.tawfikmetwally.payments.service.CreatePaymentCommand;
 import io.github.tawfikmetwally.payments.service.CreatePaymentResult;
 import io.github.tawfikmetwally.payments.service.CreatePaymentService;
@@ -52,6 +53,8 @@ class PaymentControllerTests {
     private static final String ENDPOINT = "/api/v1/payments";
     private static final String MERCHANT_ID = "merchant-a";
     private static final String IDEMPOTENCY_KEY = "idem-123";
+    private static final String UUID_PATTERN =
+            "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
     private static final UUID PAYMENT_ID = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
     private static final Instant NOW = Instant.parse("2026-09-03T18:00:00Z");
     private static final Currency BRL = Currency.getInstance("BRL");
@@ -85,6 +88,8 @@ class PaymentControllerTests {
                         .header("X-Merchant-Id", "merchant-b")
                         .content(body(10_000L, "BRL", token)))
                 .andExpect(status().isCreated())
+                .andExpect(header().string(TraceContext.TRACE_ID_HEADER,
+                        org.hamcrest.Matchers.matchesPattern(UUID_PATTERN)))
                 .andExpect(header().string("Location", ENDPOINT + "/" + PAYMENT_ID))
                 .andExpect(header().doesNotExist("Idempotency-Replayed"))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
@@ -95,6 +100,7 @@ class PaymentControllerTests {
                 .andExpect(jsonPath("$.merchantReference").value("ORDER-123"))
                 .andExpect(jsonPath("$.createdAt").value(NOW.toString()))
                 .andExpect(jsonPath("$.updatedAt").value(NOW.toString()))
+                .andExpect(jsonPath("$.traceId").doesNotExist())
                 .andExpect(jsonPath("$.merchantId").doesNotExist())
                 .andExpect(jsonPath("$.paymentMethodToken").doesNotExist())
                 .andExpect(jsonPath("$.idempotencyKey").doesNotExist());
@@ -475,6 +481,10 @@ class PaymentControllerTests {
                 .andExpect(jsonPath("$.errors[0].message").value("Must be greater than zero."))
                 .andExpect(jsonPath("$.errors[1].field").value("paymentMethodToken"))
                 .andExpect(jsonPath("$.errors[1].message").value("Length is outside the allowed range."))
+                .andExpect(header().string(TraceContext.TRACE_ID_HEADER,
+                        org.hamcrest.Matchers.matchesPattern(UUID_PATTERN)))
+                .andExpect(jsonPath("$.traceId").value(
+                        org.hamcrest.Matchers.matchesPattern(UUID_PATTERN)))
                 .andExpect(content().string(org.hamcrest.Matchers.not(
                         org.hamcrest.Matchers.containsString(sensitiveToken))))
                 .andExpect(jsonPath("$.errors[0].rejectedValue").doesNotExist());

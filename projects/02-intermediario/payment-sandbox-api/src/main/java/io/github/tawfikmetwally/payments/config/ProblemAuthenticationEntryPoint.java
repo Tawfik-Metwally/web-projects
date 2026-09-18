@@ -19,6 +19,8 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 
 import tools.jackson.databind.ObjectMapper;
 
+import io.github.tawfikmetwally.payments.observability.TraceContext;
+
 public final class ProblemAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
     private final BearerTokenAuthenticationEntryPoint delegate =
@@ -43,6 +45,7 @@ public final class ProblemAuthenticationEntryPoint implements AuthenticationEntr
                 : "A valid access token is required.";
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
         problem.setInstance(URI.create(request.getRequestURI()));
+        TraceContext.addTo(problem, request);
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         objectMapper.writeValue(response.getOutputStream(), problem);
     }

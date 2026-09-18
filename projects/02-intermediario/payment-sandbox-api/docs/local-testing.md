@@ -14,6 +14,7 @@ for local inspection; it does not authenticate through the API.
 - [Obtain tokens manually](#obtain-tokens-manually)
 - [Use Postman's OAuth 2.0 helper](#use-postmans-oauth-20-helper)
 - [Run the payment and security checks](#run-the-payment-and-security-checks)
+- [Trace correlation and safe logs](#trace-correlation-and-safe-logs)
 - [Inspect persistence with DBeaver](#inspect-persistence-with-dbeaver)
 - [Run automated tests](#run-automated-tests)
 - [Troubleshooting](#troubleshooting)
@@ -356,6 +357,7 @@ Example for a negative payment amount:
   "title": "Bad Request",
   "detail": "Request validation failed.",
   "instance": "/api/v1/payments",
+  "traceId": "6dc06e1e-48c9-4e79-a572-e371346fa33f",
   "errors": [
     {
       "field": "amount",
@@ -423,6 +425,46 @@ These checks create one payment and one refund in the persistent demo database;
 they do not require deleting existing data. In every error response, verify the
 HTTP status matches the body status and inspect the response Content-Type.
 Report failures using the step, status, and response body without credentials.
+
+## Trace correlation and safe logs
+
+The API generates a new UUID trace ID for every HTTP request. Every response
+contains it in the `X-Trace-Id` header. Problem Details responses also contain
+the same value in the `traceId` field; successful response bodies remain
+unchanged.
+
+Each completed request produces one summary log containing only the HTTP method,
+normalized route when available, status, and duration. A request rejected before
+Spring MVC selects a route uses `route=unmapped`, so raw paths and query strings
+are not copied into the log. Unexpected server failures add a controlled error
+entry with the exception type and code origin, without the exception message.
+
+The application does not log request or response bodies, Authorization headers,
+JWTs, `Idempotency-Key`, payment method tokens, refund reasons, database
+passwords, or rejected validation values. Application logs go to standard
+output. When the packaged `api` service runs through Compose, Docker keeps at
+most three 10 MB log files for that container.
+
+Use this checkpoint after starting the API:
+
+1. Send an authenticated `GET /api/v1/payments` and record its `X-Trace-Id`
+   response header. The successful JSON body must not contain `traceId`.
+2. Send the same request with **No Auth**. Expect 401 and verify that
+   `X-Trace-Id` exactly matches the `traceId` property in the Problem Details
+   body.
+3. Find the 401 trace ID in the API console. If the packaged API is running via
+   Compose, use `docker compose logs api` instead. Expect one request summary
+   with `method=GET`, `route=unmapped`, `status=401`, and `durationMs`.
+4. Send an authenticated invalid payment using the sandbox-only markers
+   `phase11-private-key` as `Idempotency-Key` and
+   `phase11-private-payment-token` as `paymentMethodToken`. Make another field
+   invalid so the response is 400.
+5. Search the API output for `phase11-private`. Neither marker may appear. The
+   request summary must still be findable by its trace ID.
+
+Trace IDs are operational data and are not stored in PostgreSQL. Removing the
+container logs also removes old trace records; payment and event data remain in
+the database according to their separate lifecycle.
 
 ## Inspect persistence with DBeaver
 
@@ -492,9 +534,11 @@ Tests use disposable PostgreSQL containers, not `payments_demo`. Check
 `BUILD SUCCESS` and the counts of failures, errors, and skipped tests.
 Reports are under `target/surefire-reports/`.
 
-The verified suite has 258 test executions. Signed-token integration tests use
-a temporary local signing authority, not a live Keycloak server. They complement
-the manual real-Keycloak workflow above.
+The last confirmed suite before the trace-correlation change had 274 test
+executions. Signed-token integration tests use a temporary local signing
+authority, not a live Keycloak server. They complement the manual real-Keycloak
+workflow above. Use the current Maven summary as the source of truth after
+running tests for this change.
 
 ## Troubleshooting
 

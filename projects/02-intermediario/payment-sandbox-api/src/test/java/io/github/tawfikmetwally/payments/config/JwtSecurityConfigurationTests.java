@@ -46,6 +46,7 @@ import io.github.tawfikmetwally.payments.controller.PaymentController;
 import io.github.tawfikmetwally.payments.domain.Money;
 import io.github.tawfikmetwally.payments.domain.Payment;
 import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import io.github.tawfikmetwally.payments.observability.TraceContext;
 import io.github.tawfikmetwally.payments.service.CreatePaymentCommand;
 import io.github.tawfikmetwally.payments.service.CreatePaymentResult;
 import io.github.tawfikmetwally.payments.service.CreatePaymentService;
@@ -60,6 +61,8 @@ class JwtSecurityConfigurationTests {
     private static final String MERCHANT_ID = "merchant-a-client";
     private static final String IDEMPOTENCY_KEY = "idem-jwt-123";
     private static final String VALID_TOKEN = "valid-token";
+    private static final String UUID_PATTERN =
+            "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
     private static final UUID PAYMENT_ID =
             UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
     private static final Instant NOW = Instant.parse("2026-09-14T18:00:00Z");
@@ -86,14 +89,24 @@ class JwtSecurityConfigurationTests {
     @Test
     void rejectsRequestWithoutBearerTokenBeforeCallingService()
             throws Exception {
-        mockMvc.perform(validRequest())
+        var result = mockMvc.perform(validRequest())
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(401))
                 .andExpect(jsonPath("$.title").value("Unauthorized"))
                 .andExpect(jsonPath("$.detail").value("A valid access token is required."))
+                .andExpect(header().string(TraceContext.TRACE_ID_HEADER,
+                        org.hamcrest.Matchers.matchesPattern(UUID_PATTERN)))
+                .andExpect(jsonPath("$.traceId").value(
+                        org.hamcrest.Matchers.matchesPattern(UUID_PATTERN)))
                 .andExpect(jsonPath("$.instance").exists())
-                .andExpect(header().exists(HttpHeaders.WWW_AUTHENTICATE));
+                .andExpect(header().exists(HttpHeaders.WWW_AUTHENTICATE))
+                .andReturn();
+
+        String headerTraceId = result.getResponse().getHeader(TraceContext.TRACE_ID_HEADER);
+        String bodyTraceId = objectMapper.readTree(result.getResponse().getContentAsString())
+                .path(TraceContext.TRACE_ID).asString();
+        org.assertj.core.api.Assertions.assertThat(bodyTraceId).isEqualTo(headerTraceId);
 
         verifyNoInteractions(createPaymentService);
     }
@@ -270,6 +283,10 @@ class JwtSecurityConfigurationTests {
                 .andExpect(jsonPath("$.status").value(403))
                 .andExpect(jsonPath("$.detail").value(
                         "You do not have permission to perform this operation."))
+                .andExpect(header().string(TraceContext.TRACE_ID_HEADER,
+                        org.hamcrest.Matchers.matchesPattern(UUID_PATTERN)))
+                .andExpect(jsonPath("$.traceId").value(
+                        org.hamcrest.Matchers.matchesPattern(UUID_PATTERN)))
                 .andExpect(jsonPath("$.instance").value(ENDPOINT))
                 .andExpect(jsonPath("$.merchantId").doesNotExist());
         verifyNoInteractions(createPaymentService);
@@ -279,6 +296,7 @@ class JwtSecurityConfigurationTests {
     void preservesBadRequestForInvalidAuthenticationRequest() throws Exception {
         var request = new MockHttpServletRequest("POST", ENDPOINT);
         var response = new MockHttpServletResponse();
+        request.setAttribute(TraceContext.TRACE_ID_REQUEST_ATTRIBUTE, "trace-security-test");
         var exception = new OAuth2AuthenticationException(new BearerTokenError(
                 "invalid_request", HttpStatus.BAD_REQUEST, "private-diagnostic", null));
 
@@ -293,6 +311,8 @@ class JwtSecurityConfigurationTests {
         org.assertj.core.api.Assertions.assertThat(body.path("status").asInt()).isEqualTo(400);
         org.assertj.core.api.Assertions.assertThat(body.path("detail").asString())
                 .isEqualTo("The authentication request is invalid.");
+        org.assertj.core.api.Assertions.assertThat(body.path("traceId").asString())
+                .isEqualTo("trace-security-test");
         org.assertj.core.api.Assertions.assertThat(response.getContentAsString())
                 .doesNotContain("private-diagnostic");
     }

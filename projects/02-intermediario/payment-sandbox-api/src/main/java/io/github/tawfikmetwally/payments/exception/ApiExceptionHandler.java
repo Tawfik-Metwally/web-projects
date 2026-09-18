@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpHeaders;
@@ -25,8 +27,20 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import io.github.tawfikmetwally.payments.observability.TraceContext;
+
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Object> handleUnexpectedFailure(
+            Exception exception, WebRequest request) {
+        logUnexpectedFailure(exception);
+        return businessProblem(exception, HttpStatus.INTERNAL_SERVER_ERROR,
+                "An internal server error occurred.", request);
+    }
 
     @ExceptionHandler(PaymentNotFoundException.class)
     public ResponseEntity<Object> handlePaymentNotFound(
@@ -83,8 +97,22 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             HttpStatusCode status, WebRequest request) {
         if (request instanceof ServletWebRequest servletRequest) {
             problem.setInstance(URI.create(servletRequest.getRequest().getRequestURI()));
+            TraceContext.addTo(problem, servletRequest.getRequest());
         }
         return super.handleExceptionInternal(exception, problem, headers, status, request);
+    }
+
+    private void logUnexpectedFailure(Exception exception) {
+        StackTraceElement[] stackTrace = exception.getStackTrace();
+        if (stackTrace.length == 0) {
+            LOGGER.error("Unhandled request failure failureType={}",
+                    exception.getClass().getName());
+            return;
+        }
+        StackTraceElement origin = stackTrace[0];
+        LOGGER.error("Unhandled request failure failureType={} origin={}.{}:{}",
+                exception.getClass().getName(), origin.getClassName(),
+                origin.getMethodName(), origin.getLineNumber());
     }
 
     private String safeDetail(Exception exception, HttpStatusCode status) {
