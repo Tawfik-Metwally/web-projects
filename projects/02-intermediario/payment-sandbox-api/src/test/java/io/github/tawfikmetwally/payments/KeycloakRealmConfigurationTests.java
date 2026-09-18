@@ -57,7 +57,8 @@ class KeycloakRealmConfigurationTests {
                         "payments:create",
                         "payments:read",
                         "refunds:create",
-                        "payment-sandbox-api-audience");
+                        "payment-sandbox-api-audience")
+                .doesNotContain("observability:read");
     }
 
     @Test
@@ -70,15 +71,31 @@ class KeycloakRealmConfigurationTests {
                         "payments:create",
                         "payments:read",
                         "payment-sandbox-api-audience")
-                .doesNotContain("refunds:create");
+                .doesNotContain("refunds:create", "observability:read");
     }
 
     @Test
-    void exposesOnlyTheThreeBusinessScopesInTokenScope() {
+    void configuresOperationsAsAnObservabilityOnlyMachineClient() {
+        JsonNode client = client("operations-client");
+
+        assertMachineClient(client, "${OPERATIONS_CLIENT_SECRET}");
+        assertThat(textValues(client.path("defaultClientScopes")))
+                .containsExactlyInAnyOrder(
+                        "observability:read",
+                        "payment-sandbox-api-audience")
+                .doesNotContain(
+                        "payments:create",
+                        "payments:read",
+                        "refunds:create");
+    }
+
+    @Test
+    void exposesBusinessAndObservabilityScopesInTokenScope() {
         assertThat(List.of(
                 "payments:create",
                 "payments:read",
-                "refunds:create"))
+                "refunds:create",
+                "observability:read"))
                 .allSatisfy(scopeName -> {
                     JsonNode scope = clientScope(scopeName);
                     assertThat(scope.path("protocol").asText())

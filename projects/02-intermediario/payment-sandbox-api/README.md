@@ -94,6 +94,8 @@ be used. Without the `demo` profile, the application uses the development databa
 
 - API: [localhost:8080](http://localhost:8080)
 - Public health check: [localhost:8080/actuator/health](http://localhost:8080/actuator/health)
+- Public probes: `/actuator/health/liveness` and `/actuator/health/readiness`
+- Protected diagnostics: `/actuator/metrics` and `/actuator/prometheus`
 - Keycloak: [localhost:8180](http://localhost:8180)
 
 Request a token from Keycloak as described in the guide, then send it to the API.

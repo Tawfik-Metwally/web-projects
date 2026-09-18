@@ -13,6 +13,7 @@ for local inspection; it does not authenticate through the API.
 - [Addresses and credentials](#addresses-and-credentials)
 - [Obtain tokens manually](#obtain-tokens-manually)
 - [Use Postman's OAuth 2.0 helper](#use-postmans-oauth-20-helper)
+- [Inspect health and protected metrics](#inspect-health-and-protected-metrics)
 - [Run the payment and security checks](#run-the-payment-and-security-checks)
 - [Trace correlation and safe logs](#trace-correlation-and-safe-logs)
 - [Inspect persistence with DBeaver](#inspect-persistence-with-dbeaver)
@@ -37,8 +38,9 @@ Copy-Item .env.example .env
 
 Do not overwrite an existing `.env`. Replace all placeholder passwords before
 starting containers. Set `DEMO_DB_PASSWORD` and independent random values for
-`MERCHANT_A_CLIENT_SECRET` and `MERCHANT_B_CLIENT_SECRET`. Keep database names
-consistent with the template unless you intentionally redesign the setup.
+`MERCHANT_A_CLIENT_SECRET`, `MERCHANT_B_CLIENT_SECRET`, and
+`OPERATIONS_CLIENT_SECRET`. Keep database names consistent with the template
+unless you intentionally redesign the setup.
 
 Do not commit secrets, tokens, screenshots containing credentials, or populated
 Postman exports. These local HTTP addresses are for development only; deployed
@@ -74,6 +76,26 @@ If you added `DEMO_DB_PASSWORD` after the first startup:
 This initializes a missing demo role/database without deleting existing records.
 It does not reset existing passwords. Never delete the shared database volume
 to fix setup. Flyway creates application tables when the API starts.
+
+### Existing environment without the operations client
+
+Keycloak imports the versioned realm automatically only when the realm does not
+exist. If the local `payment-sandbox` realm predates the operations client, first
+add a private `OPERATIONS_CLIENT_SECRET` value to `.env`. Stop Spring Boot, then
+run in a **Windows host PowerShell terminal** from the project directory. The
+host terminal is required because this one-off container bind-mounts the realm
+file from the Windows workspace:
+
+```powershell
+docker compose --env-file .env -f compose.yaml -f .devcontainer/compose.extend.yaml stop keycloak
+docker compose --env-file .env -f compose.yaml -f .devcontainer/compose.extend.yaml run --rm --no-deps keycloak import --file /opt/keycloak/data/import/payment-sandbox-realm.json --override true
+docker compose --env-file .env -f compose.yaml -f .devcontainer/compose.extend.yaml up -d --no-deps keycloak
+```
+
+The offline import replaces only the `payment-sandbox` realm configuration. It
+does not delete the `payments` or `payments_demo` databases. Existing merchant
+client secrets are read again from the same `.env` file. Wait for Keycloak to
+start before requesting new tokens.
 
 ### Start the API
 
@@ -120,10 +142,11 @@ The host uses published ports 8180 and 5432; containers use service names such
 as `keycloak:8080` and `postgres:5432`. Do not replace the Postman token URL
 with the Docker-only hostname.
 
-| Merchant | Client ID | Secret source in local `.env` | Default business scopes |
+| Identity | Client ID | Secret source in local `.env` | Default scopes |
 |---|---|---|---|
 | A | `merchant-a-client` | `MERCHANT_A_CLIENT_SECRET` | `payments:create payments:read refunds:create` |
 | B | `merchant-b-client` | `MERCHANT_B_CLIENT_SECRET` | `payments:create payments:read` |
+| Operations | `operations-client` | `OPERATIONS_CLIENT_SECRET` | `observability:read` |
 
 Client IDs are public identifiers; secrets are private credentials. A client
 secret is not Keycloak's private token-signing key.
@@ -159,6 +182,10 @@ business scopes; B must not have `refunds:create`.
 
 Repeat in a separate tab for B, using its client ID and matching secret.
 Keep the token requests available for obtaining new tokens.
+
+Create a third token request for `operations-client`, using the corresponding
+secret. Its response scope must contain `observability:read` and none of the
+three business scopes.
 
 The default scopes are already linked to each client. Leave the optional
 `scope` field absent. Requesting a scope does not grant a new permission.
@@ -203,6 +230,64 @@ Keycloak has already issued. Never copy Keycloak's signing key into Postman.
 Tokens expire after five minutes. Obtain a fresh token and select it again when
 needed. Do not assume automatic refresh: this Client Credentials configuration
 does not issue a refresh token.
+
+## Inspect health and protected metrics
+
+Health probes are public so container orchestrators can call them without
+managing an OAuth token. Details and component names remain hidden.
+
+With **No Auth**, send:
+
+```http
+GET http://localhost:8080/actuator/health
+GET http://localhost:8080/actuator/health/liveness
+GET http://localhost:8080/actuator/health/readiness
+```
+
+With PostgreSQL available, each request must return `200 OK` and
+`{"status":"UP"}`. The response must not contain `components`, database names,
+hostnames, or credentials.
+
+Still with **No Auth**, request `GET /actuator/metrics`: expect 401. Repeat with
+a merchant A token: expect 403. Use the operations token for these requests:
+
+```http
+GET http://localhost:8080/actuator/metrics
+GET http://localhost:8080/actuator/metrics/http.server.requests
+GET http://localhost:8080/actuator/metrics/hikaricp.connections
+GET http://localhost:8080/actuator/prometheus
+```
+
+Expect 200. The metrics endpoint lists diagnostic meter names; its selectors
+show the measurements and low-cardinality tags recorded by Micrometer. The
+Prometheus endpoint returns text intended for a monitoring scraper. Never place
+tokens, merchant identifiers, payment IDs, idempotency keys, or payment method
+tokens in metric names or tags.
+
+With the same operations token, request `GET /api/v1/payments`: expect 403. This
+proves the monitoring identity cannot read business data.
+
+To verify the difference between liveness and readiness, stop only PostgreSQL
+in **Dev Container Bash**:
+
+```bash
+docker compose --env-file .env -f compose.yaml -f .devcontainer/compose.extend.yaml stop postgres
+```
+
+`GET /actuator/health/liveness` must remain `200 UP`: the Java process is still
+running. `GET /actuator/health/readiness` must become `503 DOWN` because the API
+cannot serve database-backed traffic. The readiness request can take up to the
+connection-pool timeout while the database is unavailable.
+
+Restore PostgreSQL immediately after the check:
+
+```bash
+docker compose --env-file .env -f compose.yaml -f .devcontainer/compose.extend.yaml start postgres
+```
+
+Wait for PostgreSQL to become healthy. Readiness must return to `200 UP` without
+restarting Spring Boot. Keycloak can also take a moment to recover its database
+connection.
 
 ## Run the payment and security checks
 

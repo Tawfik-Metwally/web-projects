@@ -63,6 +63,7 @@ services:
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       MERCHANT_A_CLIENT_SECRET: ${MERCHANT_A_CLIENT_SECRET}
       MERCHANT_B_CLIENT_SECRET: ${MERCHANT_B_CLIENT_SECRET}
+      OPERATIONS_CLIENT_SECRET: ${OPERATIONS_CLIENT_SECRET}
     volumes:
       - ./docker/keycloak/payment-sandbox-realm.json:/opt/keycloak/data/import/payment-sandbox-realm.json:ro
     depends_on:

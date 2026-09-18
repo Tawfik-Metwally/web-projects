@@ -36,6 +36,15 @@
       }
     },
     {
+      "name": "observability:read",
+      "description": "Read protected operational metrics",
+      "protocol": "openid-connect",
+      "attributes": {
+        "display.on.consent.screen": "false",
+        "include.in.token.scope": "true"
+      }
+    },
+    {
       "name": "payment-sandbox-api-audience",
       "description": "Adds the Payment Sandbox API as access-token audience",
       "protocol": "openid-connect",
@@ -115,6 +124,27 @@
       "defaultClientScopes": [
         "payments:create",
         "payments:read",
+        "payment-sandbox-api-audience"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "operations-client",
+      "name": "Operations monitoring client",
+      "description": "Confidential machine client restricted to operational metrics",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${OPERATIONS_CLIENT_SECRET}",
+      "bearerOnly": false,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "fullScopeAllowed": false,
+      "defaultClientScopes": [
+        "observability:read",
         "payment-sandbox-api-audience"
       ],
       "optionalClientScopes": []
