@@ -2,6 +2,7 @@ package io.github.tawfikmetwally.payments;
 
 import static io.github.tawfikmetwally.payments.JwtTestAuthentication.merchantJwt;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -326,6 +327,71 @@ class RefundIntegrationTests {
     }
 
     @Test
+    void rejectsConcurrentRequestWhenSameKeyHasDifferentPayload()
+            throws Exception {
+        UUID firstPaymentId = createApprovedPayment(
+                "payment-key-concurrent-payload-conflict-a");
+        UUID secondPaymentId = createApprovedPayment(
+                "payment-key-concurrent-payload-conflict-b");
+        AtomicInteger lookupCount = synchronizeInitialPaymentLookups(
+                firstPaymentId,
+                secondPaymentId);
+        String concurrentKey = "refund-key-concurrent-payload-conflict";
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<MvcResult> firstRefund = () -> mockMvc.perform(refundRequest(
+                            firstPaymentId,
+                            MERCHANT_A,
+                            concurrentKey,
+                            "CUSTOMER_REQUEST"))
+                    .andReturn();
+            Callable<MvcResult> secondRefund = () -> mockMvc.perform(refundRequest(
+                            secondPaymentId,
+                            MERCHANT_A,
+                            concurrentKey,
+                            "DUPLICATE_CHARGE"))
+                    .andReturn();
+
+            List<MvcResult> results = concurrentResults(
+                    executor,
+                    firstRefund,
+                    secondRefund);
+
+            assertThat(results)
+                    .extracting(result -> result.getResponse().getStatus())
+                    .containsExactlyInAnyOrder(201, 409);
+
+            MvcResult created = resultWithStatus(results, 201);
+            MvcResult conflict = resultWithStatus(results, 409);
+            String createdReason = JsonPath.read(
+                    created.getResponse().getContentAsString(),
+                    "$.reason");
+            String refundedPaymentId = JsonPath.read(
+                    created.getResponse().getContentAsString(),
+                    "$.paymentId");
+
+            assertThat(conflict.getResponse().getHeader("Idempotency-Replayed"))
+                    .isNull();
+            assertThat(lookupCount).hasValue(2);
+            assertPersistedCounts(2, 1, 5, 3);
+            assertThat(paymentRepository.findAll())
+                    .extracting(PaymentEntity::getStatus)
+                    .containsExactlyInAnyOrder(
+                            PaymentStatus.APPROVED,
+                            PaymentStatus.REFUNDED);
+            assertThat(refundRepository.findByPayment_IdAndPayment_MerchantId(
+                            UUID.fromString(refundedPaymentId),
+                            MERCHANT_A))
+                    .isPresent()
+                    .get()
+                    .extracting(refund -> refund.getReason())
+                    .isEqualTo(createdReason);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void rejectsConcurrentRequestWithDifferentKeyAfterRealRollback()
             throws Exception {
         UUID paymentId = createApprovedPayment("payment-key-concurrent-conflict");
@@ -414,14 +480,18 @@ class RefundIntegrationTests {
                 BASE_TIME));
     }
 
-    private AtomicInteger synchronizeInitialPaymentLookups(UUID paymentId) {
+    private AtomicInteger synchronizeInitialPaymentLookups(
+            UUID... expectedPaymentIds) {
         CyclicBarrier bothLookupsCompleted = new CyclicBarrier(2);
         AtomicInteger lookupCount = new AtomicInteger();
 
         doAnswer(invocation -> {
+            UUID requestedPaymentId = invocation.getArgument(0);
+            String requestedMerchantId = invocation.getArgument(1);
+            assertThat(List.of(expectedPaymentIds)).contains(requestedPaymentId);
             Optional<PaymentEntity> result = findPayment(
-                    invocation.getArgument(0),
-                    invocation.getArgument(1));
+                    requestedPaymentId,
+                    requestedMerchantId);
             int currentLookup = lookupCount.incrementAndGet();
             if (currentLookup <= 2) {
                 assertThat(result).isPresent()
@@ -432,7 +502,7 @@ class RefundIntegrationTests {
             }
             return result;
         }).when(paymentRepository).findByIdAndMerchantId(
-                eq(paymentId),
+                any(UUID.class),
                 eq(MERCHANT_A));
 
         return lookupCount;

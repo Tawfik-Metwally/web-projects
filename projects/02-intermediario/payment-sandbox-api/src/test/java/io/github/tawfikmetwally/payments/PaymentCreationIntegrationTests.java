@@ -155,28 +155,8 @@ class PaymentCreationIntegrationTests {
     void replaysTheLosingConcurrentRequestAfterRealUniqueConstraintRollback()
             throws Exception {
         String concurrentKey = "idem-concurrent-123";
-        CyclicBarrier bothInitialLookupsCompleted = new CyclicBarrier(2);
-        AtomicInteger lookupCount = new AtomicInteger();
-
-        doAnswer(invocation -> {
-            int currentLookup = lookupCount.incrementAndGet();
-            String merchantId = invocation.getArgument(0);
-            IdempotencyOperation operation = invocation.getArgument(1);
-            String idempotencyKey = invocation.getArgument(2);
-            Optional<IdempotencyRecordEntity> result = findIdempotencyRecord(
-                    merchantId,
-                    operation,
-                    idempotencyKey);
-            if (currentLookup <= 2) {
-                assertThat(result).isEmpty();
-                bothInitialLookupsCompleted.await(10, TimeUnit.SECONDS);
-            }
-            return result;
-        }).when(idempotencyRecordRepository)
-                .findByMerchantIdAndOperationTypeAndIdempotencyKey(
-                        eq(MERCHANT_ID),
-                        eq(IdempotencyOperation.CREATE_PAYMENT),
-                        eq(concurrentKey));
+        AtomicInteger lookupCount = synchronizeInitialIdempotencyLookups(
+                concurrentKey);
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
@@ -184,11 +164,10 @@ class PaymentCreationIntegrationTests {
                     .perform(request(concurrentKey, 10_000))
                     .andReturn();
 
-            Future<MvcResult> firstAttempt = executor.submit(createPayment);
-            Future<MvcResult> secondAttempt = executor.submit(createPayment);
-            List<MvcResult> results = List.of(
-                    firstAttempt.get(20, TimeUnit.SECONDS),
-                    secondAttempt.get(20, TimeUnit.SECONDS));
+            List<MvcResult> results = concurrentResults(
+                    executor,
+                    createPayment,
+                    createPayment);
 
             assertThat(results)
                     .extracting(result -> result.getResponse().getStatus())
@@ -211,6 +190,90 @@ class PaymentCreationIntegrationTests {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void rejectsLosingConcurrentRequestWhenSameKeyHasDifferentPayload()
+            throws Exception {
+        String concurrentKey = "idem-concurrent-conflict-123";
+        AtomicInteger lookupCount = synchronizeInitialIdempotencyLookups(
+                concurrentKey);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<MvcResult> firstPayment = () -> mockMvc
+                    .perform(request(concurrentKey, 10_000))
+                    .andReturn();
+            Callable<MvcResult> secondPayment = () -> mockMvc
+                    .perform(request(concurrentKey, 20_000))
+                    .andReturn();
+
+            List<MvcResult> results = concurrentResults(
+                    executor,
+                    firstPayment,
+                    secondPayment);
+
+            assertThat(results)
+                    .extracting(result -> result.getResponse().getStatus())
+                    .containsExactlyInAnyOrder(201, 409);
+
+            MvcResult created = resultWithStatus(results, 201);
+            MvcResult conflict = resultWithStatus(results, 409);
+            Number createdAmount = JsonPath.read(
+                    created.getResponse().getContentAsString(),
+                    "$.amount");
+
+            assertThat(conflict.getResponse().getHeader("Location")).isNull();
+            assertThat(conflict.getResponse().getHeader("Idempotency-Replayed"))
+                    .isNull();
+            assertThat(lookupCount).hasValue(3);
+            assertPersistedCounts(1, 2, 1);
+            assertThat(paymentRepository.findAll())
+                    .singleElement()
+                    .extracting(PaymentEntity::getAmountMinor)
+                    .isEqualTo(createdAmount.longValue());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private AtomicInteger synchronizeInitialIdempotencyLookups(
+            String idempotencyKey) {
+        CyclicBarrier bothInitialLookupsCompleted = new CyclicBarrier(2);
+        AtomicInteger lookupCount = new AtomicInteger();
+
+        doAnswer(invocation -> {
+            int currentLookup = lookupCount.incrementAndGet();
+            String merchantId = invocation.getArgument(0);
+            IdempotencyOperation operation = invocation.getArgument(1);
+            String requestedKey = invocation.getArgument(2);
+            Optional<IdempotencyRecordEntity> result = findIdempotencyRecord(
+                    merchantId,
+                    operation,
+                    requestedKey);
+            if (currentLookup <= 2) {
+                assertThat(result).isEmpty();
+                bothInitialLookupsCompleted.await(10, TimeUnit.SECONDS);
+            }
+            return result;
+        }).when(idempotencyRecordRepository)
+                .findByMerchantIdAndOperationTypeAndIdempotencyKey(
+                        eq(MERCHANT_ID),
+                        eq(IdempotencyOperation.CREATE_PAYMENT),
+                        eq(idempotencyKey));
+
+        return lookupCount;
+    }
+
+    private List<MvcResult> concurrentResults(
+            ExecutorService executor,
+            Callable<MvcResult> first,
+            Callable<MvcResult> second) throws Exception {
+        Future<MvcResult> firstAttempt = executor.submit(first);
+        Future<MvcResult> secondAttempt = executor.submit(second);
+        return List.of(
+                firstAttempt.get(20, TimeUnit.SECONDS),
+                secondAttempt.get(20, TimeUnit.SECONDS));
     }
 
     private MockHttpServletRequestBuilder request(String idempotencyKey, long amount) {

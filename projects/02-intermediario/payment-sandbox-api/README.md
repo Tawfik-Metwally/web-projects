@@ -10,7 +10,7 @@ Persistent idempotency is enforced per merchant, operation, and key. Identical r
 
 ## Current verification
 
-The current reports contain 274 passing tests with no failures, errors, or skipped tests, verified with `./mvnw -q clean test` in an isolated temporary project copy inside the Dev Container. This avoids interference with the IDE's shared build output.
+The baseline before the Phase 12.1 test-suite review contains 288 passing tests with no failures, errors, or skipped tests, reported by the author after running `./mvnw clean test` in the Dev Container.
 
 - domain, simulator, request-validation, mapping, hashing, service, and transaction tests;
 - Spring MVC controller tests with mocked service dependencies;
@@ -133,7 +133,16 @@ In the Dev Container, without the demo profile:
 
 The suite uses disposable PostgreSQL containers. Spring Boot does not need to be
 running. Check the exit status, test totals, and reports in `target/surefire-reports/`.
-The last verified suite has 274 executions, all passing.
+The last verified baseline has 288 executions, all passing.
+
+To run the same suite and generate a JaCoCo coverage report, use:
+
+```bash
+./mvnw clean verify
+```
+
+Open `target/site/jacoco/index.html` after the build. The report highlights executed
+lines and branches as a diagnostic aid; no percentage threshold fails the build.
 
 To stop the environment without deleting database data, run this in a **host
 terminal** in the project folder after stopping Spring Boot:
