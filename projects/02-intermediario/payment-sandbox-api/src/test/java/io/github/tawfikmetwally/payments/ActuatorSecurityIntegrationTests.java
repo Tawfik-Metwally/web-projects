@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
@@ -25,11 +26,14 @@ import io.github.tawfikmetwally.payments.observability.TraceContext;
 
 @Import(TestcontainersConfiguration.class)
 @AutoConfigureMockMvc
+@AutoConfigureMetrics
 @SpringBootTest
 class ActuatorSecurityIntegrationTests {
 
     private static final String UUID_PATTERN =
             "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+    private static final MediaType ACTUATOR_JSON = MediaType.parseMediaType(
+            "application/vnd.spring-boot.actuator.v3+json");
     private static final JwtSigningTestSupport SIGNING = new JwtSigningTestSupport();
 
     @Autowired
@@ -54,7 +58,7 @@ class ActuatorSecurityIntegrationTests {
         }) {
             mockMvc.perform(get(path))
                     .andExpect(status().isOk())
-                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                    .andExpect(content().contentTypeCompatibleWith(ACTUATOR_JSON))
                     .andExpect(jsonPath("$.status").value("UP"))
                     .andExpect(jsonPath("$.components").doesNotExist())
                     .andExpect(jsonPath("$.details").doesNotExist())

@@ -13,12 +13,23 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
+import io.github.tawfikmetwally.payments.dto.response.ApiProblemResponse;
 import io.github.tawfikmetwally.payments.dto.response.PaymentEventResponse;
 import io.github.tawfikmetwally.payments.service.GetPaymentHistoryService;
 import io.github.tawfikmetwally.payments.service.PaymentHistoryEntry;
 
 @RestController
 @RequestMapping("/api/v1/payments/{paymentId}/events")
+@Tag(name = "Payment history", description = "Read immutable payment lifecycle events.")
 public class PaymentEventController {
 
     private final GetPaymentHistoryService getPaymentHistoryService;
@@ -29,8 +40,40 @@ public class PaymentEventController {
     }
 
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(
+            summary = "Get payment history",
+            description = "Required scope: `payments:read`. Events are ordered by occurrence.")
+    @ApiResponses({
+        @ApiResponse(
+                responseCode = "200",
+                description = "Payment events returned.",
+                content = @Content(array = @ArraySchema(
+                        schema = @Schema(implementation = PaymentEventResponse.class)))),
+        @ApiResponse(responseCode = "400", description = "Payment ID is not a UUID.",
+                content = @Content(
+                        mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                        schema = @Schema(implementation = ApiProblemResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Missing or invalid access token.",
+                content = @Content(
+                        mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                        schema = @Schema(implementation = ApiProblemResponse.class))),
+        @ApiResponse(responseCode = "403", description = "Token lacks payments:read.",
+                content = @Content(
+                        mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                        schema = @Schema(implementation = ApiProblemResponse.class))),
+        @ApiResponse(responseCode = "404", description = "Payment absent or owned by another merchant.",
+                content = @Content(
+                        mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                        schema = @Schema(implementation = ApiProblemResponse.class))),
+        @ApiResponse(responseCode = "500", description = "Unexpected internal failure.",
+                content = @Content(
+                        mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                        schema = @Schema(implementation = ApiProblemResponse.class)))
+    })
     public ResponseEntity<List<PaymentEventResponse>> getHistory(
+            @Parameter(description = "Payment identifier.", required = true)
             @PathVariable UUID paymentId,
+            @Parameter(hidden = true)
             Principal principal) {
         if (principal == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);

@@ -13,8 +13,9 @@ for local inspection; it does not authenticate through the API.
 - [Addresses and credentials](#addresses-and-credentials)
 - [Obtain tokens manually](#obtain-tokens-manually)
 - [Use Postman's OAuth 2.0 helper](#use-postmans-oauth-20-helper)
+- [Use OpenAPI, Swagger UI, and Postman](#use-openapi-swagger-ui-and-postman)
 - [Inspect health and protected metrics](#inspect-health-and-protected-metrics)
-- [Run the payment and security checks](#run-the-payment-and-security-checks)
+- [Run the payment and security scenario](#run-the-payment-and-security-scenario)
 - [Trace correlation and safe logs](#trace-correlation-and-safe-logs)
 - [Inspect persistence with DBeaver](#inspect-persistence-with-dbeaver)
 - [Run automated tests](#run-automated-tests)
@@ -231,6 +232,38 @@ Tokens expire after five minutes. Obtain a fresh token and select it again when
 needed. Do not assume automatic refresh: this Client Credentials configuration
 does not issue a refresh token.
 
+## Use OpenAPI, Swagger UI, and Postman
+
+The executable HTTP contract is available while the API is running:
+
+| Purpose | URL |
+|---|---|
+| OpenAPI JSON | `http://localhost:8080/v3/api-docs` |
+| OpenAPI YAML | `http://localhost:8080/v3/api-docs.yaml` |
+| Swagger UI | `http://localhost:8080/swagger-ui/index.html` |
+
+OpenAPI is the source of truth for business paths, request and response schemas,
+headers, validation constraints, status codes, examples, and required scopes.
+Only `/api/v1/**` is included. Actuator remains a separate operational interface.
+
+In Swagger UI, select **Authorize**, paste only a current access token in the
+`bearerAuth` field, and close the dialog. Do not include the word `Bearer`.
+Swagger UI keeps authorization only in the current page state and does not
+persist it across reloads.
+
+To create a Postman collection from the same contract:
+
+1. Select **Import > Link**.
+2. Enter `http://localhost:8080/v3/api-docs` and complete the import.
+3. Open the generated collection's **Authorization** tab and select
+   **Bearer Token**.
+4. Paste a current Keycloak access token. Obtain or replace the token using the
+   token request described above whenever it expires.
+
+The generated collection provides the endpoint structure and schemas. The
+scenario below supplies the sequence and expected behavior needed to validate
+idempotency, authorization, ownership, and state transitions.
+
 ## Inspect health and protected metrics
 
 Health probes are public so container orchestrators can call them without
@@ -289,227 +322,52 @@ Wait for PostgreSQL to become healthy. Readiness must return to `200 UP` without
 restarting Spring Boot. Keycloak can also take a moment to recover its database
 connection.
 
-## Run the payment and security checks
+## Run the payment and security scenario
 
-Use a fresh key prefix for each complete run, such as `local-check-001`.
-If rerunning the whole guide, change it everywhere to `local-check-002`.
-For replay checks within one run, keep the original key and body unchanged.
+Use Swagger UI or the collection imported into Postman. The OpenAPI examples
+provide request bodies and explain every field; this section defines only the
+sequence and the behavior to prove.
 
-`ID_A` and `ID_B` below are placeholders, not Postman variables. Replace them
-with actual UUIDs from responses. GET requests have **Body > none**. POST API
-requests use **Body > raw > JSON**, not the form body used by the token endpoint.
+Obtain fresh tokens for merchants A and B. Choose a new key prefix for each full
+run, such as `local-check-001`, and save the created payment IDs as `ID_A` and
+`ID_B`.
 
-### 1. Create a payment for A and verify idempotency
+| Step | Identity and operation | Input variation | Expected evidence |
+|---:|---|---|---|
+| 1 | A creates a payment | Fresh key ending in `-create`; approved example body; reference `LOCAL-CHECK-A` | 201, APPROVED; save `ID_A` |
+| 2 | A repeats step 1 | Same key and identical body | 200, same ID, `Idempotency-Replayed: true` |
+| 3 | A repeats step 1 | Same key, change only amount | 409; original payment unchanged |
+| 4 | B creates a payment | Reuse A's key; reference `LOCAL-CHECK-B` | 201 with a different ID; save `ID_B` |
+| 5 | A and B read payments | Each reads its own ID, then the other merchant's ID | Own resource 200; foreign resource 404 |
+| 6 | A and B list payments | First page, size 100 | Each list excludes the other merchant's IDs |
+| 7 | B refunds `ID_B` | Fresh refund key and documented example body | 403 because B lacks `refunds:create` |
+| 8 | A refunds `ID_B` | Fresh refund key | 404 because A does not own B's payment |
+| 9 | A refunds `ID_A` | Fresh refund key | 201, COMPLETED; payment becomes REFUNDED |
+| 10 | A repeats step 9 | Same key and identical body | 200, same refund ID, replay header true |
+| 11 | A refunds `ID_A` again | Different key | 409; no second refund |
+| 12 | A reads `ID_A` and its events | No body | Payment REFUNDED; creation, approval, and refund events |
 
-Send with A's token:
+Use the documented operations to check representative errors as well:
 
-```http
-POST http://localhost:8080/api/v1/payments
-Idempotency-Key: local-check-001-create
-Content-Type: application/json
-```
-
-```json
-{
-  "amount": 10000,
-  "currency": "BRL",
-  "merchantReference": "LOCAL-CHECK-A",
-  "paymentMethodToken": "tok_approved"
-}
-```
-
-Expected: `201 Created`, `status: APPROVED`, and `amount: 10000` (BRL 100.00).
-Save the response `id` as ID_A.
-
-Send again unchanged: expect `200 OK`, the same ID and response header
-`Idempotency-Replayed: true`.
-
-Change only `amount` to `11000`, keeping the same key: expect `409 Conflict`.
-Restore the body to `10000`. The conflict must not change the existing payment.
-
-### 2. Create a payment for B with the same key
-
-Send the same POST with B's token and key `local-check-001-create`, changing
-only `merchantReference` to `LOCAL-CHECK-B`.
-
-Expected: `201`, `APPROVED`, a different ID. Save it as ID_B. The same key can
-be used independently by different merchants.
-
-### 3. Read payments, list them, and inspect history
-
-All paths below use base URL `http://localhost:8080`.
-
-| Token | Method and path | Expected |
-|---|---|---|
-| A | `GET /api/v1/payments/ID_A` | 200, payment A |
-| B | `GET /api/v1/payments/ID_B` | 200, payment B |
-| B | `GET /api/v1/payments/ID_A` | 404 |
-| A | `GET /api/v1/payments/ID_B` | 404 |
-| A | `GET /api/v1/payments/ID_A/events` | 200, creation and approval events |
-| B | `GET /api/v1/payments/ID_A/events` | 404 |
-
-List using A, then B:
-
-```http
-GET http://localhost:8080/api/v1/payments?page=0&size=100
-```
-
-A's list must not include ID_B, and B's list must not include ID_A.
-Old records belonging to the same merchant may also appear. `page=0` selects
-the first page; `size` is the maximum number of items on that page (1 to 100).
-Results are ordered by newest creation time, then ID, descending.
-
-### 4. Check authentication
-
-Use `GET /api/v1/payments/ID_A`:
-
-1. With a fresh A token: 200.
-2. Set Authorization to **No Auth**: 401.
-3. Set Bearer Token to `token-invalid`: 401.
-4. Restore a fresh A token: 200.
-
-Ensure no manual Authorization header remains in the No Auth step.
-A successful request does not authenticate later requests automatically.
-
-### 5. Check scope and ownership before refunding
-
-For all refund requests, use this JSON body:
-
-```json
-{
-  "reason": "CUSTOMER_REQUEST"
-}
-```
-
-Do not send an amount; the API derives the full amount from the payment.
-
-| Token | Method and path | Idempotency-Key | Expected |
-|---|---|---|---|
-| B | `POST /api/v1/payments/ID_B/refunds` | `local-check-001-refund-b` | 403: B lacks the refund scope |
-| A | `POST /api/v1/payments/ID_B/refunds` | `local-check-001-refund-cross` | 404: A has the scope but does not own B's payment |
-| A | `POST /api/v1/payments/ID_A/refunds` | `local-check-001-refund-a` | 201: refund created |
-
-The successful refund response has `paymentId: ID_A`, `amount: 10000`, and
-`status: COMPLETED`. This is the **refund's** status; the payment becomes
-`REFUNDED`.
-
-Repeat A's successful refund with the same key and body: expect 200, the same
-refund ID, and `Idempotency-Replayed: true`.
-
-Change only its key to `local-check-001-refund-a-second`: expect 409 because
-the payment has already been refunded. Neither attempt creates another refund.
-
-### 6. Verify the final API state
-
-With A's token:
-
-- `GET /api/v1/payments/ID_A`: 200, `REFUNDED`.
-- `GET /api/v1/payments/ID_A/events`: 200, exactly three events:
-  `PAYMENT_CREATED`, `PAYMENT_APPROVED`, `PAYMENT_REFUNDED`.
-- `GET /api/v1/payments?status=REFUNDED&page=0&size=100`: includes A's newly
-  refunded payment in this small local scenario.
-
-With B's token, that filtered list must not include ID_A. Reading ID_B still
-returns `APPROVED`.
-
-### Status reference
-
-| Status | Meaning in this guide |
+| Check | Expected |
 |---|---|
-| 200 | Successful read or idempotent replay |
-| 201 | New payment or refund created |
-| 401 | Missing, invalid, or expired token |
-| 403 | Valid identity without the required scope |
-| 404 | Payment absent or owned by another merchant, after scope checks |
-| 409 | Idempotency conflict or payment no longer refundable |
+| List without Authorization | 401 Problem Details |
+| List with `token-invalid` | 401 Problem Details |
+| Create with negative amount | 400 validation Problem Details with an `amount` error |
+| Create without `Idempotency-Key` | 400 Problem Details |
+| Create with currency USD | 400, only BRL is supported |
+| List with page -1 and size 101 | 400 with `page` and `size` errors |
+| Get `not-a-uuid` | 400 Problem Details |
+| B attempts A's refund | 403 before ownership is evaluated |
 
-A declined payment can still return 201: HTTP creation success is different from
-financial approval. Unconfigured API method/path combinations are denied.
+Every error response must use `application/problem+json`; its HTTP status must
+match the body status. Validation errors contain only `field` and `message`, and
+rejected values or credentials must not appear. Every response includes
+`X-Trace-Id`; Problem Details repeats the same value in `traceId`.
 
-## Error response checkpoint
-
-Handled MVC errors and security rejections use `application/problem+json`.
-The body contains `status`, `title`, `detail`, and `instance`. The default
-`type: about:blank` may be omitted by the configured serializer. Field validation
-errors also include an `errors` array containing only `field` and `message`.
-Rejected values, tokens, and internal exception diagnostics are not included.
-
-Example for a negative payment amount:
-
-```json
-{
-  "status": 400,
-  "title": "Bad Request",
-  "detail": "Request validation failed.",
-  "instance": "/api/v1/payments",
-  "traceId": "6dc06e1e-48c9-4e79-a572-e371346fa33f",
-  "errors": [
-    {
-      "field": "amount",
-      "message": "Must be greater than zero."
-    }
-  ]
-}
-```
-
-Security handlers preserve the Bearer `WWW-Authenticate` challenge. It may
-include `resource_metadata`; do not compare the entire header to a fixed string.
-Invalid tokens include `invalid_token`, and insufficient scopes include
-`insufficient_scope`. Authentication protocol errors classified as
-`invalid_request` retain HTTP 400 rather than being forced to 401.
-
-Run the following checks against a restarted API using the `demo` profile.
-Obtain fresh A/B tokens as described above; tokens expire after 300 seconds.
-Use **Body > none** for GET and **Body > raw > JSON** for POST, with
-`Content-Type: application/json`. Use a fresh key prefix for each run.
-
-1. GET `/api/v1/payments` with **No Auth**, then with **Bearer Token**
-   set to `token-invalido`: both return 401 with
-   `A valid access token is required.`. Remove any manually added Authorization
-   header for the No Auth case.
-2. With A, POST a payment using key `phase11-001-create` and this body:
-
-   ```json
-   {
-     "amount": -100,
-     "currency": "BRL",
-     "merchantReference": "PHASE11-001",
-     "paymentMethodToken": "tok_approved"
-   }
-   ```
-
-   Expect 400 and a field error for `amount`. Change amount to 10000 and resend:
-   expect 201 and APPROVED. Save the returned UUID as ID_A.
-3. Repeat unchanged: 200 and `Idempotency-Replayed: true`. Change amount to
-   11000 under the same key: 409 with
-   `Idempotency key was already used with different request data.`.
-4. With A and a separate key such as `phase11-001-invalid`, check these
-   independent invalid requests. Restore valid fields between checks:
-   - Body containing only `{`: 400, `Request content or parameters are invalid.`.
-   - Valid payment body but missing Idempotency-Key: 400.
-   - Valid payment body with currency USD: 400, `Only BRL is supported.`.
-   - GET `/api/v1/payments?page=-1&size=101`: 400 with page/size errors;
-     `instance` excludes the query string.
-   - GET `/api/v1/payments/not-a-uuid`: 400.
-5. With B, GET `/api/v1/payments/ID_A`: 404, `Payment was not found.`.
-   Compare with an absent UUID: same status and detail, without merchant/payment
-   data. The instance naturally differs with the requested path.
-6. With B, POST `/api/v1/payments/ID_A/refunds`, key
-   `phase11-001-refund-b`, body `{"reason":"CUSTOMER_REQUEST"}`:
-   403, `You do not have permission to perform this operation.`.
-   Scope authorization happens before the ownership check.
-7. With A, POST the same refund path with key `phase11-001-refund-a` and
-   body `{"reason":" "}`: 400 with a reason field error. Restore
-   `{"reason":"CUSTOMER_REQUEST"}` and resend under that key: 201, COMPLETED.
-8. Repeat the successful refund unchanged: 200 replay. Change only its key to
-   `phase11-001-refund-second`: 409, `Payment is not eligible for a refund.`.
-9. With A, GET the payment: 200, REFUNDED. GET its `/events`: three events
-   for creation, approval, and refund.
-
-These checks create one payment and one refund in the persistent demo database;
-they do not require deleting existing data. In every error response, verify the
-HTTP status matches the body status and inspect the response Content-Type.
-Report failures using the step, status, and response body without credentials.
+These checks create one payment and one refund in the persistent demo database.
+They do not require deleting existing data. Use a new key prefix when repeating
+the complete scenario.
 
 ## Trace correlation and safe logs
 

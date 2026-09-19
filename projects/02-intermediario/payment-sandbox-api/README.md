@@ -96,9 +96,12 @@ be used. Without the `demo` profile, the application uses the development databa
 - Public health check: [localhost:8080/actuator/health](http://localhost:8080/actuator/health)
 - Public probes: `/actuator/health/liveness` and `/actuator/health/readiness`
 - Protected diagnostics: `/actuator/metrics` and `/actuator/prometheus`
+- OpenAPI contract: [localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
+- Swagger UI: [localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)
 - Keycloak: [localhost:8180](http://localhost:8180)
 
 Request a token from Keycloak as described in the guide, then send it to the API.
+The OpenAPI URL can also be imported directly into Postman to create a collection.
 A first payment request with a fresh idempotency key is:
 
 ```http
