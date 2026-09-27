@@ -1,15 +1,21 @@
-package io.github.tawfikmetwally.payments;
+package io.github.tawfikmetwally.payments.integration;
 
-import static io.github.tawfikmetwally.payments.JwtTestAuthentication.merchantJwt;
+import static io.github.tawfikmetwally.payments.support.JwtTestAuthentication.merchantJwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.tawfikmetwally.payments.TestcontainersConfiguration;
+import io.github.tawfikmetwally.payments.entity.PaymentEntity;
+import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import io.github.tawfikmetwally.payments.repository.IdempotencyRecordRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentEventRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentRepository;
+import io.github.tawfikmetwally.payments.repository.RefundRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,13 +24,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
-
-import io.github.tawfikmetwally.payments.entity.PaymentEntity;
-import io.github.tawfikmetwally.payments.enums.PaymentStatus;
-import io.github.tawfikmetwally.payments.repository.IdempotencyRecordJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
-import io.github.tawfikmetwally.payments.repository.RefundJpaRepository;
 
 @Import(TestcontainersConfiguration.class)
 @AutoConfigureMockMvc
@@ -40,16 +39,16 @@ class PaymentQueryIntegrationTests {
     private MockMvc mockMvc;
 
     @Autowired
-    private PaymentJpaRepository paymentRepository;
+    private PaymentRepository paymentRepository;
 
     @Autowired
-    private PaymentEventJpaRepository paymentEventRepository;
+    private PaymentEventRepository paymentEventRepository;
 
     @Autowired
-    private RefundJpaRepository refundRepository;
+    private RefundRepository refundRepository;
 
     @Autowired
-    private IdempotencyRecordJpaRepository idempotencyRecordRepository;
+    private IdempotencyRecordRepository idempotencyRecordRepository;
 
     @BeforeEach
     void clearTemporaryDatabase() {
@@ -61,15 +60,9 @@ class PaymentQueryIntegrationTests {
 
     @Test
     void returnsPaymentByIdForItsMerchant() throws Exception {
-        PaymentEntity payment = savePayment(
-                MERCHANT_A,
-                "ORDER-OWN-001",
-                10_000,
-                PaymentStatus.APPROVED,
-                BASE_TIME);
+        PaymentEntity payment = savePayment(MERCHANT_A, "ORDER-OWN-001", 10_000, PaymentStatus.APPROVED, BASE_TIME);
 
-        mockMvc.perform(get(ENDPOINT + "/{paymentId}", payment.getId())
-                        .with(merchantJwt(MERCHANT_A)))
+        mockMvc.perform(get(ENDPOINT + "/{paymentId}", payment.getId()).with(merchantJwt(MERCHANT_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(payment.getId().toString()))
                 .andExpect(jsonPath("$.merchantReference").value("ORDER-OWN-001"))
@@ -80,15 +73,9 @@ class PaymentQueryIntegrationTests {
 
     @Test
     void hidesPaymentThatBelongsToAnotherMerchant() throws Exception {
-        PaymentEntity payment = savePayment(
-                MERCHANT_A,
-                "ORDER-PRIVATE-001",
-                10_000,
-                PaymentStatus.APPROVED,
-                BASE_TIME);
+        PaymentEntity payment = savePayment(MERCHANT_A, "ORDER-PRIVATE-001", 10_000, PaymentStatus.APPROVED, BASE_TIME);
 
-        mockMvc.perform(get(ENDPOINT + "/{paymentId}", payment.getId())
-                        .with(merchantJwt(MERCHANT_B)))
+        mockMvc.perform(get(ENDPOINT + "/{paymentId}", payment.getId()).with(merchantJwt(MERCHANT_B)))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(404))
@@ -99,42 +86,29 @@ class PaymentQueryIntegrationTests {
 
     @Test
     void listsOnlyPaymentsFromAuthenticatedMerchant() throws Exception {
-        savePayment(MERCHANT_A, "ORDER-A-OLDER", 10_000,
-                PaymentStatus.APPROVED, BASE_TIME);
-        savePayment(MERCHANT_B, "ORDER-B-PRIVATE", 20_000,
-                PaymentStatus.APPROVED, BASE_TIME.plusSeconds(60));
-        savePayment(MERCHANT_A, "ORDER-A-NEWER", 30_000,
-                PaymentStatus.DECLINED, BASE_TIME.plusSeconds(120));
+        savePayment(MERCHANT_A, "ORDER-A-OLDER", 10_000, PaymentStatus.APPROVED, BASE_TIME);
+        savePayment(MERCHANT_B, "ORDER-B-PRIVATE", 20_000, PaymentStatus.APPROVED, BASE_TIME.plusSeconds(60));
+        savePayment(MERCHANT_A, "ORDER-A-NEWER", 30_000, PaymentStatus.DECLINED, BASE_TIME.plusSeconds(120));
 
-        mockMvc.perform(get(ENDPOINT)
-                        .with(merchantJwt(MERCHANT_A)))
+        mockMvc.perform(get(ENDPOINT).with(merchantJwt(MERCHANT_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(2))
-                .andExpect(jsonPath("$.content[0].merchantReference")
-                        .value("ORDER-A-NEWER"))
-                .andExpect(jsonPath("$.content[1].merchantReference")
-                        .value("ORDER-A-OLDER"))
+                .andExpect(jsonPath("$.content[0].merchantReference").value("ORDER-A-NEWER"))
+                .andExpect(jsonPath("$.content[1].merchantReference").value("ORDER-A-OLDER"))
                 .andExpect(jsonPath("$.totalElements").value(2));
     }
 
     @Test
     void ordersPaymentsFromNewestToOldest() throws Exception {
-        savePayment(MERCHANT_A, "ORDER-OLDEST", 10_000,
-                PaymentStatus.APPROVED, BASE_TIME);
-        savePayment(MERCHANT_A, "ORDER-NEWEST", 30_000,
-                PaymentStatus.APPROVED, BASE_TIME.plusSeconds(120));
-        savePayment(MERCHANT_A, "ORDER-MIDDLE", 20_000,
-                PaymentStatus.APPROVED, BASE_TIME.plusSeconds(60));
+        savePayment(MERCHANT_A, "ORDER-OLDEST", 10_000, PaymentStatus.APPROVED, BASE_TIME);
+        savePayment(MERCHANT_A, "ORDER-NEWEST", 30_000, PaymentStatus.APPROVED, BASE_TIME.plusSeconds(120));
+        savePayment(MERCHANT_A, "ORDER-MIDDLE", 20_000, PaymentStatus.APPROVED, BASE_TIME.plusSeconds(60));
 
-        mockMvc.perform(get(ENDPOINT)
-                        .with(merchantJwt(MERCHANT_A)))
+        mockMvc.perform(get(ENDPOINT).with(merchantJwt(MERCHANT_A)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].merchantReference")
-                        .value("ORDER-NEWEST"))
-                .andExpect(jsonPath("$.content[1].merchantReference")
-                        .value("ORDER-MIDDLE"))
-                .andExpect(jsonPath("$.content[2].merchantReference")
-                        .value("ORDER-OLDEST"));
+                .andExpect(jsonPath("$.content[0].merchantReference").value("ORDER-NEWEST"))
+                .andExpect(jsonPath("$.content[1].merchantReference").value("ORDER-MIDDLE"))
+                .andExpect(jsonPath("$.content[2].merchantReference").value("ORDER-OLDEST"));
     }
 
     @Test
@@ -180,20 +154,14 @@ class PaymentQueryIntegrationTests {
 
     @Test
     void filtersPaymentsByStatusAndMerchant() throws Exception {
-        savePayment(MERCHANT_A, "ORDER-A-APPROVED", 10_000,
-                PaymentStatus.APPROVED, BASE_TIME);
-        savePayment(MERCHANT_A, "ORDER-A-DECLINED", 20_000,
-                PaymentStatus.DECLINED, BASE_TIME.plusSeconds(60));
-        savePayment(MERCHANT_B, "ORDER-B-APPROVED", 30_000,
-                PaymentStatus.APPROVED, BASE_TIME.plusSeconds(120));
+        savePayment(MERCHANT_A, "ORDER-A-APPROVED", 10_000, PaymentStatus.APPROVED, BASE_TIME);
+        savePayment(MERCHANT_A, "ORDER-A-DECLINED", 20_000, PaymentStatus.DECLINED, BASE_TIME.plusSeconds(60));
+        savePayment(MERCHANT_B, "ORDER-B-APPROVED", 30_000, PaymentStatus.APPROVED, BASE_TIME.plusSeconds(120));
 
-        mockMvc.perform(get(ENDPOINT)
-                        .with(merchantJwt(MERCHANT_A))
-                        .param("status", "APPROVED"))
+        mockMvc.perform(get(ENDPOINT).with(merchantJwt(MERCHANT_A)).param("status", "APPROVED"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
-                .andExpect(jsonPath("$.content[0].merchantReference")
-                        .value("ORDER-A-APPROVED"))
+                .andExpect(jsonPath("$.content[0].merchantReference").value("ORDER-A-APPROVED"))
                 .andExpect(jsonPath("$.content[0].status").value("APPROVED"))
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.totalPages").value(1));
@@ -201,12 +169,9 @@ class PaymentQueryIntegrationTests {
 
     @Test
     void returnsEmptyContentWhenPageIsBeyondLastPage() throws Exception {
-        savePayment(MERCHANT_A, "ORDER-1", 10_000,
-                PaymentStatus.APPROVED, BASE_TIME);
-        savePayment(MERCHANT_A, "ORDER-2", 20_000,
-                PaymentStatus.APPROVED, BASE_TIME.plusSeconds(60));
-        savePayment(MERCHANT_A, "ORDER-3", 30_000,
-                PaymentStatus.APPROVED, BASE_TIME.plusSeconds(120));
+        savePayment(MERCHANT_A, "ORDER-1", 10_000, PaymentStatus.APPROVED, BASE_TIME);
+        savePayment(MERCHANT_A, "ORDER-2", 20_000, PaymentStatus.APPROVED, BASE_TIME.plusSeconds(60));
+        savePayment(MERCHANT_A, "ORDER-3", 30_000, PaymentStatus.APPROVED, BASE_TIME.plusSeconds(120));
 
         mockMvc.perform(get(ENDPOINT)
                         .with(merchantJwt(MERCHANT_A))
@@ -230,26 +195,12 @@ class PaymentQueryIntegrationTests {
     }
 
     private PaymentEntity savePayment(
-            String merchantId,
-            String merchantReference,
-            long amountMinor,
-            PaymentStatus status,
-            Instant createdAt) {
+            String merchantId, String merchantReference, long amountMinor, PaymentStatus status, Instant createdAt) {
         return paymentRepository.saveAndFlush(new PaymentEntity(
-                UUID.randomUUID(),
-                merchantId,
-                merchantReference,
-                amountMinor,
-                "BRL",
-                status,
-                createdAt,
-                createdAt));
+                UUID.randomUUID(), merchantId, merchantReference, amountMinor, "BRL", status, createdAt, createdAt));
     }
 
-    private PaymentEntity payment(
-            String merchantReference,
-            long amountMinor,
-            Instant createdAt) {
+    private PaymentEntity payment(String merchantReference, long amountMinor, Instant createdAt) {
         return new PaymentEntity(
                 UUID.randomUUID(),
                 MERCHANT_A,

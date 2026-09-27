@@ -1,10 +1,9 @@
 package io.github.tawfikmetwally.payments.domain;
 
+import io.github.tawfikmetwally.payments.enums.RefundStatus;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
-
-import io.github.tawfikmetwally.payments.enums.RefundStatus;
 
 public final class Refund {
 
@@ -17,54 +16,22 @@ public final class Refund {
     private final String reason;
     private final Instant createdAt;
 
-    private Refund(
-            UUID id,
-            UUID paymentId,
-            Money money,
-            RefundStatus status,
-            String reason,
-            Instant createdAt) {
+    private Refund(UUID id, UUID paymentId, Money money, RefundStatus status, String reason, Instant createdAt) {
         this.id = Objects.requireNonNull(id, "id must not be null");
-        this.paymentId = Objects.requireNonNull(
-                paymentId,
-                "paymentId must not be null");
+        this.paymentId = Objects.requireNonNull(paymentId, "paymentId must not be null");
         this.money = Objects.requireNonNull(money, "money must not be null");
         this.status = Objects.requireNonNull(status, "status must not be null");
         this.reason = requireReason(reason);
-        this.createdAt = Objects.requireNonNull(
-                createdAt,
-                "createdAt must not be null");
+        this.createdAt = Objects.requireNonNull(createdAt, "createdAt must not be null");
     }
 
-    static Refund create(
-            UUID id,
-            UUID paymentId,
-            Money money,
-            String reason,
-            Instant createdAt) {
-        return new Refund(
-                id,
-                paymentId,
-                money,
-                RefundStatus.COMPLETED,
-                reason,
-                createdAt);
+    static Refund create(UUID id, UUID paymentId, Money money, String reason, Instant createdAt) {
+        return new Refund(id, paymentId, money, RefundStatus.COMPLETED, reason, createdAt);
     }
 
     public static Refund restore(
-            UUID id,
-            UUID paymentId,
-            Money money,
-            RefundStatus status,
-            String reason,
-            Instant createdAt) {
-        return new Refund(
-                id,
-                paymentId,
-                money,
-                status,
-                reason,
-                createdAt);
+            UUID id, UUID paymentId, Money money, RefundStatus status, String reason, Instant createdAt) {
+        return new Refund(id, paymentId, money, status, reason, createdAt);
     }
 
     private static String requireReason(String reason) {
@@ -72,8 +39,7 @@ public final class Refund {
             throw new IllegalArgumentException("reason must not be blank");
         }
         if (reason.length() > MAX_REASON_LENGTH) {
-            throw new IllegalArgumentException(
-                    "reason must not exceed 255 characters");
+            throw new IllegalArgumentException("reason must not exceed 255 characters");
         }
         return reason;
     }

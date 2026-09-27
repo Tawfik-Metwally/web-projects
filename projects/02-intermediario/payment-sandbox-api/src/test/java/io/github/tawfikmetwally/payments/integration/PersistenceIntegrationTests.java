@@ -1,8 +1,21 @@
-package io.github.tawfikmetwally.payments;
+package io.github.tawfikmetwally.payments.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.tawfikmetwally.payments.TestcontainersConfiguration;
+import io.github.tawfikmetwally.payments.entity.IdempotencyRecordEntity;
+import io.github.tawfikmetwally.payments.entity.PaymentEntity;
+import io.github.tawfikmetwally.payments.entity.PaymentEventEntity;
+import io.github.tawfikmetwally.payments.entity.RefundEntity;
+import io.github.tawfikmetwally.payments.enums.IdempotencyOperation;
+import io.github.tawfikmetwally.payments.enums.PaymentEventType;
+import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import io.github.tawfikmetwally.payments.enums.RefundStatus;
+import io.github.tawfikmetwally.payments.repository.IdempotencyRecordRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentEventRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentRepository;
+import io.github.tawfikmetwally.payments.repository.RefundRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -12,34 +25,21 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 
-import io.github.tawfikmetwally.payments.entity.IdempotencyRecordEntity;
-import io.github.tawfikmetwally.payments.entity.PaymentEntity;
-import io.github.tawfikmetwally.payments.entity.PaymentEventEntity;
-import io.github.tawfikmetwally.payments.entity.RefundEntity;
-import io.github.tawfikmetwally.payments.enums.IdempotencyOperation;
-import io.github.tawfikmetwally.payments.enums.PaymentEventType;
-import io.github.tawfikmetwally.payments.enums.PaymentStatus;
-import io.github.tawfikmetwally.payments.enums.RefundStatus;
-import io.github.tawfikmetwally.payments.repository.IdempotencyRecordJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
-import io.github.tawfikmetwally.payments.repository.RefundJpaRepository;
-
 @Import(TestcontainersConfiguration.class)
 @DataJpaTest
 class PersistenceIntegrationTests {
 
     @Autowired
-    private PaymentJpaRepository paymentRepository;
+    private PaymentRepository paymentRepository;
 
     @Autowired
-    private PaymentEventJpaRepository paymentEventRepository;
+    private PaymentEventRepository paymentEventRepository;
 
     @Autowired
-    private RefundJpaRepository refundRepository;
+    private RefundRepository refundRepository;
 
     @Autowired
-    private IdempotencyRecordJpaRepository idempotencyRecordRepository;
+    private IdempotencyRecordRepository idempotencyRecordRepository;
 
     @Test
     void findsPaymentOnlyForItsMerchant() {
@@ -84,18 +84,15 @@ class PersistenceIntegrationTests {
                         PaymentStatus.APPROVED,
                         approvedAt)));
 
-        List<PaymentEventEntity> events = paymentEventRepository
-                .findByPayment_IdAndPayment_MerchantIdOrderByOccurredAtAsc(
-                        payment.getId(),
-                        "merchant-a");
+        List<PaymentEventEntity> events =
+                paymentEventRepository.findByPayment_IdAndPayment_MerchantIdOrderByOccurredAtAsc(
+                        payment.getId(), "merchant-a");
 
         assertThat(events)
                 .extracting(PaymentEventEntity::getOccurredAt)
                 .containsExactly(createdAt, approvedAt, refundedAt);
-        assertThat(paymentEventRepository
-                .findByPayment_IdAndPayment_MerchantIdOrderByOccurredAtAsc(
-                        payment.getId(),
-                        "merchant-b"))
+        assertThat(paymentEventRepository.findByPayment_IdAndPayment_MerchantIdOrderByOccurredAtAsc(
+                        payment.getId(), "merchant-b"))
                 .isEmpty();
     }
 
@@ -112,13 +109,9 @@ class PersistenceIntegrationTests {
                 "Customer request",
                 createdAt));
 
-        assertThat(refundRepository.findByPayment_IdAndPayment_MerchantId(
-                payment.getId(),
-                "merchant-a"))
+        assertThat(refundRepository.findByPayment_IdAndPayment_MerchantId(payment.getId(), "merchant-a"))
                 .isPresent();
-        assertThat(refundRepository.findByPayment_IdAndPayment_MerchantId(
-                payment.getId(),
-                "merchant-b"))
+        assertThat(refundRepository.findByPayment_IdAndPayment_MerchantId(payment.getId(), "merchant-b"))
                 .isEmpty();
 
         RefundEntity duplicateRefund = new RefundEntity(
@@ -163,23 +156,14 @@ class PersistenceIntegrationTests {
                         merchantAPayment,
                         createdAt)));
 
-        assertThat(idempotencyRecordRepository
-                .findByMerchantIdAndOperationTypeAndIdempotencyKey(
-                        "merchant-a",
-                        IdempotencyOperation.CREATE_PAYMENT,
-                        sharedKey))
+        assertThat(idempotencyRecordRepository.findByMerchantIdAndOperationTypeAndIdempotencyKey(
+                        "merchant-a", IdempotencyOperation.CREATE_PAYMENT, sharedKey))
                 .isPresent();
-        assertThat(idempotencyRecordRepository
-                .findByMerchantIdAndOperationTypeAndIdempotencyKey(
-                        "merchant-b",
-                        IdempotencyOperation.CREATE_PAYMENT,
-                        sharedKey))
+        assertThat(idempotencyRecordRepository.findByMerchantIdAndOperationTypeAndIdempotencyKey(
+                        "merchant-b", IdempotencyOperation.CREATE_PAYMENT, sharedKey))
                 .isPresent();
-        assertThat(idempotencyRecordRepository
-                .findByMerchantIdAndOperationTypeAndIdempotencyKey(
-                        "merchant-a",
-                        IdempotencyOperation.CREATE_REFUND,
-                        sharedKey))
+        assertThat(idempotencyRecordRepository.findByMerchantIdAndOperationTypeAndIdempotencyKey(
+                        "merchant-a", IdempotencyOperation.CREATE_REFUND, sharedKey))
                 .isPresent();
 
         IdempotencyRecordEntity exactDuplicate = idempotencyRecord(
@@ -197,14 +181,7 @@ class PersistenceIntegrationTests {
     private PaymentEntity savePayment(String merchantId, String merchantReference) {
         Instant now = Instant.parse("2026-09-01T09:00:00Z");
         return paymentRepository.saveAndFlush(new PaymentEntity(
-                UUID.randomUUID(),
-                merchantId,
-                merchantReference,
-                10_000,
-                "BRL",
-                PaymentStatus.APPROVED,
-                now,
-                now));
+                UUID.randomUUID(), merchantId, merchantReference, 10_000, "BRL", PaymentStatus.APPROVED, now, now));
     }
 
     private IdempotencyRecordEntity idempotencyRecord(
@@ -215,12 +192,6 @@ class PersistenceIntegrationTests {
             PaymentEntity payment,
             Instant createdAt) {
         return new IdempotencyRecordEntity(
-                UUID.randomUUID(),
-                merchantId,
-                operation,
-                key,
-                requestHash,
-                payment,
-                createdAt);
+                UUID.randomUUID(), merchantId, operation, key, requestHash, payment, createdAt);
     }
 }

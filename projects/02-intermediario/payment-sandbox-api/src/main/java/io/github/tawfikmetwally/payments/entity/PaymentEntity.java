@@ -1,21 +1,20 @@
 package io.github.tawfikmetwally.payments.entity;
 
+import io.github.tawfikmetwally.payments.domain.Money;
+import io.github.tawfikmetwally.payments.domain.Payment;
+import io.github.tawfikmetwally.payments.enums.PaymentStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.Currency;
 import java.util.Objects;
 import java.util.UUID;
-
-import io.github.tawfikmetwally.payments.domain.Money;
-import io.github.tawfikmetwally.payments.domain.Payment;
-import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "payments")
@@ -48,8 +47,7 @@ public class PaymentEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    protected PaymentEntity() {
-    }
+    protected PaymentEntity() {}
 
     public PaymentEntity(
             UUID id,
@@ -87,14 +85,7 @@ public class PaymentEntity {
     public Payment toDomain() {
         Money money = new Money(amountMinor, Currency.getInstance(currency));
 
-        return Payment.restore(
-                id,
-                merchantId,
-                merchantReference,
-                money,
-                status,
-                createdAt,
-                updatedAt);
+        return Payment.restore(id, merchantId, merchantReference, money, status, createdAt, updatedAt);
     }
 
     public UUID getId() {

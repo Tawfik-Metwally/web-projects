@@ -7,15 +7,12 @@ import org.springframework.stereotype.Service;
 @Service
 public class CreatePaymentService {
 
-    private static final String IDEMPOTENCY_UNIQUE_CONSTRAINT =
-            "uq_idempotency_records_merchant_operation_key";
+    private static final String IDEMPOTENCY_UNIQUE_CONSTRAINT = "uq_idempotency_records_merchant_operation_key";
 
     private final CreatePaymentTransaction paymentTransaction;
     private final CreatePaymentRequestHasher requestHasher;
 
-    public CreatePaymentService(
-            CreatePaymentTransaction paymentTransaction,
-            CreatePaymentRequestHasher requestHasher) {
+    public CreatePaymentService(CreatePaymentTransaction paymentTransaction, CreatePaymentRequestHasher requestHasher) {
         this.paymentTransaction = paymentTransaction;
         this.requestHasher = requestHasher;
     }
@@ -38,8 +35,7 @@ public class CreatePaymentService {
         Throwable cause = exception;
         while (cause != null) {
             if (cause instanceof ConstraintViolationException constraintViolation
-                    && IDEMPOTENCY_UNIQUE_CONSTRAINT.equals(
-                            constraintViolation.getConstraintName())) {
+                    && IDEMPOTENCY_UNIQUE_CONSTRAINT.equals(constraintViolation.getConstraintName())) {
                 return true;
             }
             cause = cause.getCause();

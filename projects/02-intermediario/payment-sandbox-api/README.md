@@ -6,11 +6,11 @@ A containerized REST API for simulating payment creation, queries, idempotency, 
 
 The project is under active development. Payment creation, merchant-scoped queries, paginated listing, full refunds, and chronological event history are implemented. Creation and refund operations persist their state, events, and idempotency records within transactional boundaries.
 
-Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: handled MVC errors and security rejections now use Problem Details; observability and delivery hardening remain planned.
+Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: handled MVC errors and security rejections use Problem Details, requests have trace correlation, and Actuator exposes controlled health and metrics. CI, dependency and image auditing, and delivery hardening remain planned.
 
 ## Current verification
 
-The baseline before the Phase 12.1 test-suite review contains 288 passing tests with no failures, errors, or skipped tests, reported by the author after running `./mvnw clean test` in the Dev Container.
+The latest verification was run by the author in the Dev Container on 2026-09-27 with `./mvnw clean verify`: 288 tests passed with no failures, errors, or skipped tests. Spotless confirmed all 96 Java files are formatted, PMD 7.28.0 reported no violations from the focused ruleset, and JaCoCo generated coverage data for 56 classes.
 
 - domain, simulator, request-validation, mapping, hashing, service, and transaction tests;
 - Spring MVC controller tests with mocked service dependencies;
@@ -133,9 +133,26 @@ In the Dev Container, without the demo profile:
 
 The suite uses disposable PostgreSQL containers. Spring Boot does not need to be
 running. Check the exit status, test totals, and reports in `target/surefire-reports/`.
-The last verified baseline has 288 executions, all passing.
+The last verified suite has 288 executions, all passing.
 
-To run the same suite and generate a JaCoCo coverage report, use:
+### Check formatting and static analysis
+
+Spotless keeps Java formatting deterministic. Apply the configured format after
+editing Java code, then check that no formatting changes remain:
+
+```bash
+./mvnw spotless:apply
+./mvnw spotless:check
+```
+
+PMD inspects the source for the focused defect and maintainability rules in
+`config/pmd/ruleset.xml`:
+
+```bash
+./mvnw pmd:check
+```
+
+To run the tests, both quality checks, and generate a JaCoCo coverage report, use:
 
 ```bash
 ./mvnw clean verify
@@ -143,6 +160,7 @@ To run the same suite and generate a JaCoCo coverage report, use:
 
 Open `target/site/jacoco/index.html` after the build. The report highlights executed
 lines and branches as a diagnostic aid; no percentage threshold fails the build.
+The Maven `verify` phase fails when Spotless or PMD reports a violation.
 
 To stop the environment without deleting database data, run this in a **host
 terminal** in the project folder after stopping Spring Boot:
@@ -176,7 +194,7 @@ docker compose --env-file .env -f compose.yaml logs --follow api
 docker compose --env-file .env -f compose.yaml stop
 ```
 
-The packaged API uses the same localhost addresses and has the same unfinished features described above. The latest verification covers the Maven test suite; a full smoke test of the packaged runtime remains planned. This Compose configuration is for local use, not production deployment.
+The packaged API uses the same localhost addresses and has the same unfinished features described above. The latest verification covers compilation, the Maven test suite, Spotless, PMD, and JaCoCo; a full smoke test of the packaged runtime remains planned. This Compose configuration is for local use, not production deployment.
 
 ## Infrastructure and local files
 

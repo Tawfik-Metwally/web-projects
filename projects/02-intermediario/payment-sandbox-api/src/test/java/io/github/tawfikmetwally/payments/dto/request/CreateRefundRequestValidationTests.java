@@ -2,19 +2,17 @@ package io.github.tawfikmetwally.payments.dto.request;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
+import jakarta.validation.ValidatorFactory;
 import java.util.Set;
-
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
-
-import jakarta.validation.ConstraintViolation;
-import jakarta.validation.Validation;
-import jakarta.validation.Validator;
-import jakarta.validation.ValidatorFactory;
 
 class CreateRefundRequestValidationTests {
 
@@ -34,8 +32,7 @@ class CreateRefundRequestValidationTests {
 
     @Test
     void acceptsAValidReasonWithoutAnAmount() {
-        assertThat(validate(new CreateRefundRequest("CUSTOMER_REQUEST")))
-                .isEmpty();
+        assertThat(validate(new CreateRefundRequest("CUSTOMER_REQUEST"))).isEmpty();
     }
 
     @ParameterizedTest
@@ -50,18 +47,13 @@ class CreateRefundRequestValidationTests {
         assertViolationFor(new CreateRefundRequest("r".repeat(256)), "reason");
     }
 
-    private static Set<ConstraintViolation<CreateRefundRequest>> validate(
-            CreateRefundRequest request) {
+    private static Set<ConstraintViolation<CreateRefundRequest>> validate(CreateRefundRequest request) {
         return validator.validate(request);
     }
 
-    private static void assertViolationFor(
-            CreateRefundRequest request,
-            String propertyName) {
+    private static void assertViolationFor(CreateRefundRequest request, String propertyName) {
         boolean hasExpectedViolation = validate(request).stream()
-                .anyMatch(violation -> violation.getPropertyPath()
-                        .toString()
-                        .equals(propertyName));
+                .anyMatch(violation -> violation.getPropertyPath().toString().equals(propertyName));
         assertThat(hasExpectedViolation).isTrue();
     }
 }

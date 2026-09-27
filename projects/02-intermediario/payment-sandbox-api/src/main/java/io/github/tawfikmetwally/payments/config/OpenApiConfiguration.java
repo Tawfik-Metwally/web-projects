@@ -1,9 +1,5 @@
 package io.github.tawfikmetwally.payments.config;
 
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springdoc.core.customizers.OpenApiCustomizer;
-
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.headers.Header;
@@ -11,6 +7,9 @@ import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.media.StringSchema;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import org.springdoc.core.customizers.OpenApiCustomizer;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class OpenApiConfiguration {
@@ -23,8 +22,8 @@ public class OpenApiConfiguration {
                 .type(SecurityScheme.Type.HTTP)
                 .scheme("bearer")
                 .bearerFormat("JWT")
-                .description("Paste only a short-lived access token issued by the "
-                        + "payment-sandbox Keycloak realm.");
+                .description(
+                        "Paste only a short-lived access token issued by the " + "payment-sandbox Keycloak realm.");
 
         return new OpenAPI()
                 .info(new Info()
@@ -33,8 +32,7 @@ public class OpenApiConfiguration {
                         .description("Simulated payment API for learning and portfolio "
                                 + "demonstration. Amounts use minor units, only BRL is "
                                 + "accepted, and real payment data must never be used."))
-                .components(new Components()
-                        .addSecuritySchemes(BEARER_AUTH, bearerScheme))
+                .components(new Components().addSecuritySchemes(BEARER_AUTH, bearerScheme))
                 .addSecurityItem(new SecurityRequirement().addList(BEARER_AUTH));
     }
 

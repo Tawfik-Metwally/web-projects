@@ -7,17 +7,13 @@ import org.springframework.stereotype.Service;
 @Service
 public class CreateRefundService {
 
-    private static final String IDEMPOTENCY_UNIQUE_CONSTRAINT =
-            "uq_idempotency_records_merchant_operation_key";
-    private static final String REFUND_UNIQUE_CONSTRAINT =
-            "uq_refunds_payment";
+    private static final String IDEMPOTENCY_UNIQUE_CONSTRAINT = "uq_idempotency_records_merchant_operation_key";
+    private static final String REFUND_UNIQUE_CONSTRAINT = "uq_refunds_payment";
 
     private final CreateRefundTransaction refundTransaction;
     private final CreateRefundRequestHasher requestHasher;
 
-    public CreateRefundService(
-            CreateRefundTransaction refundTransaction,
-            CreateRefundRequestHasher requestHasher) {
+    public CreateRefundService(CreateRefundTransaction refundTransaction, CreateRefundRequestHasher requestHasher) {
         this.refundTransaction = refundTransaction;
         this.requestHasher = requestHasher;
     }
@@ -32,22 +28,17 @@ public class CreateRefundService {
                 return refundTransaction.replay(command, requestHash);
             }
             if (hasConstraint(exception, REFUND_UNIQUE_CONSTRAINT)) {
-                return refundTransaction.resolveRefundConflict(
-                        command,
-                        requestHash);
+                return refundTransaction.resolveRefundConflict(command, requestHash);
             }
             throw exception;
         }
     }
 
-    private boolean hasConstraint(
-            Throwable exception,
-            String expectedConstraint) {
+    private boolean hasConstraint(Throwable exception, String expectedConstraint) {
         Throwable cause = exception;
         while (cause != null) {
             if (cause instanceof ConstraintViolationException constraintViolation
-                    && expectedConstraint.equals(
-                            constraintViolation.getConstraintName())) {
+                    && expectedConstraint.equals(constraintViolation.getConstraintName())) {
                 return true;
             }
             cause = cause.getCause();

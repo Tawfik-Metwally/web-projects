@@ -6,8 +6,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import io.github.tawfikmetwally.payments.domain.Payment;
+import io.github.tawfikmetwally.payments.entity.PaymentEntity;
+import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import io.github.tawfikmetwally.payments.repository.PaymentRepository;
 import java.util.List;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageImpl;
@@ -15,24 +18,17 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
-import io.github.tawfikmetwally.payments.domain.Payment;
-import io.github.tawfikmetwally.payments.entity.PaymentEntity;
-import io.github.tawfikmetwally.payments.enums.PaymentStatus;
-import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
-
 class ListPaymentsServiceTests {
 
     private static final String MERCHANT_ID = "merchant-a";
-    private static final Sort DEFAULT_SORT = Sort.by(
-            Sort.Order.desc("createdAt"),
-            Sort.Order.desc("id"));
+    private static final Sort DEFAULT_SORT = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 
-    private PaymentJpaRepository paymentRepository;
+    private PaymentRepository paymentRepository;
     private ListPaymentsService service;
 
     @BeforeEach
     void setUp() {
-        paymentRepository = mock(PaymentJpaRepository.class);
+        paymentRepository = mock(PaymentRepository.class);
         service = new ListPaymentsService(paymentRepository);
     }
 
@@ -60,16 +56,9 @@ class ListPaymentsServiceTests {
 
     @Test
     void listsMerchantPaymentsUsingStatusFilter() {
-        ListPaymentsQuery query = new ListPaymentsQuery(
-                MERCHANT_ID,
-                0,
-                20,
-                PaymentStatus.APPROVED);
+        ListPaymentsQuery query = new ListPaymentsQuery(MERCHANT_ID, 0, 20, PaymentStatus.APPROVED);
         Pageable pageable = PageRequest.of(0, 20, DEFAULT_SORT);
-        when(paymentRepository.findAllByMerchantIdAndStatus(
-                MERCHANT_ID,
-                PaymentStatus.APPROVED,
-                pageable))
+        when(paymentRepository.findAllByMerchantIdAndStatus(MERCHANT_ID, PaymentStatus.APPROVED, pageable))
                 .thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
         ListPaymentsResult result = service.list(query);
@@ -79,10 +68,7 @@ class ListPaymentsServiceTests {
         assertThat(result.size()).isEqualTo(20);
         assertThat(result.totalElements()).isZero();
         assertThat(result.totalPages()).isZero();
-        verify(paymentRepository).findAllByMerchantIdAndStatus(
-                MERCHANT_ID,
-                PaymentStatus.APPROVED,
-                pageable);
+        verify(paymentRepository).findAllByMerchantIdAndStatus(MERCHANT_ID, PaymentStatus.APPROVED, pageable);
         verifyNoMoreInteractions(paymentRepository);
     }
 }

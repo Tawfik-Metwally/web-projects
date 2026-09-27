@@ -1,5 +1,7 @@
 package io.github.tawfikmetwally.payments.entity;
 
+import io.github.tawfikmetwally.payments.enums.PaymentEventType;
+import io.github.tawfikmetwally.payments.enums.PaymentStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -11,9 +13,6 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
-
-import io.github.tawfikmetwally.payments.enums.PaymentEventType;
-import io.github.tawfikmetwally.payments.enums.PaymentStatus;
 
 @Entity
 @Table(name = "payment_events")
@@ -42,8 +41,7 @@ public class PaymentEventEntity {
     @Column(name = "occurred_at", nullable = false, updatable = false)
     private Instant occurredAt;
 
-    protected PaymentEventEntity() {
-    }
+    protected PaymentEventEntity() {}
 
     public PaymentEventEntity(
             UUID id,

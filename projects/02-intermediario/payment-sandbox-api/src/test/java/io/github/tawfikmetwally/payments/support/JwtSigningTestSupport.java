@@ -1,11 +1,4 @@
-package io.github.tawfikmetwally.payments;
-
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
-import java.text.ParseException;
-import java.time.Instant;
-import java.util.Date;
+package io.github.tawfikmetwally.payments.support;
 
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
@@ -18,6 +11,12 @@ import com.nimbusds.jose.util.Base64URL;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.text.ParseException;
+import java.time.Instant;
+import java.util.Date;
 import org.springframework.test.context.DynamicPropertyRegistry;
 
 /** Temporary signing authority used only by tests; publishes no private key. */
@@ -35,8 +34,7 @@ public final class JwtSigningTestSupport implements AutoCloseable {
         try {
             signingKey = new RSAKeyGenerator(2048).keyID(KEY_ID).generate();
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-            byte[] publicKeys = new JWKSet(signingKey.toPublicJWK())
-                    .toString().getBytes(StandardCharsets.UTF_8);
+            byte[] publicKeys = new JWKSet(signingKey.toPublicJWK()).toString().getBytes(StandardCharsets.UTF_8);
             server.createContext("/certs", exchange -> {
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
                 exchange.sendResponseHeaders(200, publicKeys.length);
@@ -52,7 +50,8 @@ public final class JwtSigningTestSupport implements AutoCloseable {
 
     public void registerProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", () -> ISSUER);
-        registry.add("spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
+        registry.add(
+                "spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
                 () -> "http://127.0.0.1:" + server.getAddress().getPort() + "/certs");
         registry.add("spring.security.oauth2.resourceserver.jwt.audiences", () -> AUDIENCE);
     }
@@ -65,8 +64,7 @@ public final class JwtSigningTestSupport implements AutoCloseable {
         return sign(signingKey, merchantId, ISSUER, AUDIENCE, 300, scopes);
     }
 
-    public String token(Object merchantId, String issuer, String audience, int expirySeconds)
-            throws JOSEException {
+    public String token(Object merchantId, String issuer, String audience, int expirySeconds) throws JOSEException {
         return sign(signingKey, merchantId, issuer, audience, expirySeconds, ALL_SCOPES);
     }
 
@@ -86,8 +84,8 @@ public final class JwtSigningTestSupport implements AutoCloseable {
                 + original.getSignature();
     }
 
-    private String sign(RSAKey key, Object merchantId, String issuer,
-            String audience, int expirySeconds, String scopes) throws JOSEException {
+    private String sign(RSAKey key, Object merchantId, String issuer, String audience, int expirySeconds, String scopes)
+            throws JOSEException {
         Instant now = Instant.now();
         var claims = new JWTClaimsSet.Builder()
                 .issuer(issuer)
@@ -102,8 +100,7 @@ public final class JwtSigningTestSupport implements AutoCloseable {
             claims.claim("azp", merchantId);
         }
         var jwt = new SignedJWT(
-                new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(KEY_ID).build(),
-                claims.build());
+                new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(KEY_ID).build(), claims.build());
         jwt.sign(new RSASSASigner(key));
         return jwt.serialize();
     }

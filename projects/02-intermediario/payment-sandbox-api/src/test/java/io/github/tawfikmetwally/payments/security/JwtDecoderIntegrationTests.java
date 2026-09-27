@@ -1,8 +1,9 @@
-package io.github.tawfikmetwally.payments.config;
+package io.github.tawfikmetwally.payments.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.tawfikmetwally.payments.support.JwtSigningTestSupport;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,8 +15,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import io.github.tawfikmetwally.payments.JwtSigningTestSupport;
 
 @WebMvcTest(JwtDecoderIntegrationTests.Probe.class)
 @Import(SecurityConfiguration.class)
@@ -44,20 +43,17 @@ class JwtDecoderIntegrationTests {
 
     @Test
     void rejectsWrongIssuer() throws Exception {
-        reject(SIGNING.token("merchant-a-client", "https://other.example.test",
-                JwtSigningTestSupport.AUDIENCE, 300));
+        reject(SIGNING.token("merchant-a-client", "https://other.example.test", JwtSigningTestSupport.AUDIENCE, 300));
     }
 
     @Test
     void rejectsWrongAudience() throws Exception {
-        reject(SIGNING.token("merchant-a-client", JwtSigningTestSupport.ISSUER,
-                "other-api", 300));
+        reject(SIGNING.token("merchant-a-client", JwtSigningTestSupport.ISSUER, "other-api", 300));
     }
 
     @Test
     void rejectsExpiredToken() throws Exception {
-        reject(SIGNING.token("merchant-a-client", JwtSigningTestSupport.ISSUER,
-                JwtSigningTestSupport.AUDIENCE, -300));
+        reject(SIGNING.token("merchant-a-client", JwtSigningTestSupport.ISSUER, JwtSigningTestSupport.AUDIENCE, -300));
     }
 
     @Test

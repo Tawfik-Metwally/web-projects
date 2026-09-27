@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Currency;
 import java.util.stream.Stream;
-
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -33,8 +32,7 @@ class CreatePaymentRequestHasherTests {
     @ParameterizedTest
     @MethodSource("commandsWithChangedPaymentData")
     void changesHashWhenAnyPaymentFieldChanges(CreatePaymentCommand changedCommand) {
-        String originalHash = hasher.hash(
-                command(10_000, BRL, "ORDER-001", "tok_approved"));
+        String originalHash = hasher.hash(command(10_000, BRL, "ORDER-001", "tok_approved"));
 
         assertThat(hasher.hash(changedCommand)).isNotEqualTo(originalHash);
     }
@@ -42,8 +40,8 @@ class CreatePaymentRequestHasherTests {
     @Test
     void excludesMerchantAndIdempotencyKeyFromPayloadHash() {
         CreatePaymentCommand first = command(10_000, BRL, "ORDER-001", "tok_approved");
-        CreatePaymentCommand otherScope = new CreatePaymentCommand(
-                "merchant-b", "another-key", 10_000, BRL, "ORDER-001", "tok_approved");
+        CreatePaymentCommand otherScope =
+                new CreatePaymentCommand("merchant-b", "another-key", 10_000, BRL, "ORDER-001", "tok_approved");
 
         assertThat(hasher.hash(otherScope)).isEqualTo(hasher.hash(first));
     }
@@ -65,12 +63,8 @@ class CreatePaymentRequestHasherTests {
     }
 
     private static CreatePaymentCommand command(
-            long amountMinor,
-            Currency currency,
-            String merchantReference,
-            String paymentMethodToken) {
+            long amountMinor, Currency currency, String merchantReference, String paymentMethodToken) {
         return new CreatePaymentCommand(
-                "merchant-a", "idem-001", amountMinor, currency,
-                merchantReference, paymentMethodToken);
+                "merchant-a", "idem-001", amountMinor, currency, merchantReference, paymentMethodToken);
     }
 }

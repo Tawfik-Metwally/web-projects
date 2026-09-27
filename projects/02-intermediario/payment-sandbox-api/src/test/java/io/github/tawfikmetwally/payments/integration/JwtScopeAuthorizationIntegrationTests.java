@@ -1,17 +1,23 @@
-package io.github.tawfikmetwally.payments;
+package io.github.tawfikmetwally.payments.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.tawfikmetwally.payments.TestcontainersConfiguration;
+import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import io.github.tawfikmetwally.payments.repository.IdempotencyRecordRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentEventRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentRepository;
+import io.github.tawfikmetwally.payments.repository.RefundRepository;
+import io.github.tawfikmetwally.payments.support.JwtSigningTestSupport;
 import java.util.Arrays;
 import java.util.UUID;
 import java.util.stream.Stream;
-
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,12 +36,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import io.github.tawfikmetwally.payments.enums.PaymentStatus;
-import io.github.tawfikmetwally.payments.repository.IdempotencyRecordJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
-import io.github.tawfikmetwally.payments.repository.RefundJpaRepository;
-
 @Import(TestcontainersConfiguration.class)
 @AutoConfigureMockMvc
 @SpringBootTest
@@ -48,14 +48,18 @@ class JwtScopeAuthorizationIntegrationTests {
 
     @Autowired
     private MockMvc mockMvc;
+
     @Autowired
-    private PaymentJpaRepository payments;
+    private PaymentRepository payments;
+
     @Autowired
-    private RefundJpaRepository refunds;
+    private RefundRepository refunds;
+
     @Autowired
-    private PaymentEventJpaRepository events;
+    private PaymentEventRepository events;
+
     @Autowired
-    private IdempotencyRecordJpaRepository idempotency;
+    private IdempotencyRecordRepository idempotency;
 
     private UUID paymentId;
 
@@ -76,8 +80,8 @@ class JwtScopeAuthorizationIntegrationTests {
         events.deleteAllInBatch();
         payments.deleteAllInBatch();
 
-        var result = mockMvc.perform(bearer(operation(Route.CREATE, "setup"),
-                        SIGNING.tokenWithScopes(MERCHANT, "payments:create")))
+        var result = mockMvc.perform(
+                        bearer(operation(Route.CREATE, "setup"), SIGNING.tokenWithScopes(MERCHANT, "payments:create")))
                 .andExpect(status().isCreated())
                 .andReturn();
         String location = result.getResponse().getHeader(HttpHeaders.LOCATION);
@@ -87,10 +91,8 @@ class JwtScopeAuthorizationIntegrationTests {
 
     @ParameterizedTest(name = "{0}, scopes=[{1}], allowed={2}")
     @MethodSource("scopeCases")
-    void enforcesRequiredScopeForEveryEndpoint(Route route, String scopes, boolean allowed)
-            throws Exception {
-        var result = mockMvc.perform(bearer(operation(route, "operation"),
-                SIGNING.tokenWithScopes(MERCHANT, scopes)));
+    void enforcesRequiredScopeForEveryEndpoint(Route route, String scopes, boolean allowed) throws Exception {
+        var result = mockMvc.perform(bearer(operation(route, "operation"), SIGNING.tokenWithScopes(MERCHANT, scopes)));
 
         if (!allowed) {
             result.andExpect(status().isForbidden())
@@ -99,8 +101,7 @@ class JwtScopeAuthorizationIntegrationTests {
                     .andExpect(jsonPath("$.title").value("Forbidden"))
                     .andExpect(jsonPath("$.detail").value("You do not have permission to perform this operation."))
                     .andExpect(jsonPath("$.instance").exists())
-                    .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE,
-                            containsString("insufficient_scope")));
+                    .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, containsString("insufficient_scope")));
             assertUnchanged();
         } else {
             result.andExpect(status().is(route.successStatus));
@@ -117,12 +118,20 @@ class JwtScopeAuthorizationIntegrationTests {
     }
 
     static Stream<Arguments> scopeCases() {
-        return Arrays.stream(Route.values()).flatMap(route ->
-                Stream.of(null, "", "payments:create", "payments:read", "refunds:create",
-                                ALL_SCOPES, "payments:read-extra")
-                        .map(scopes -> Arguments.of(route, scopes,
-                                scopes != null && Arrays.asList(scopes.split(" "))
-                                        .contains(route.requiredScope))));
+        return Arrays.stream(Route.values())
+                .flatMap(route -> Stream.of(
+                                null,
+                                "",
+                                "payments:create",
+                                "payments:read",
+                                "refunds:create",
+                                ALL_SCOPES,
+                                "payments:read-extra")
+                        .map(scopes -> Arguments.of(
+                                route,
+                                scopes,
+                                scopes != null
+                                        && Arrays.asList(scopes.split(" ")).contains(route.requiredScope))));
     }
 
     @ParameterizedTest(name = "{0}, invalid token=[{1}]")
@@ -144,14 +153,13 @@ class JwtScopeAuthorizationIntegrationTests {
     }
 
     static Stream<Arguments> unauthenticatedCases() {
-        return Arrays.stream(Route.values()).flatMap(route ->
-                Stream.of("", "not-a-jwt").map(token -> Arguments.of(route, token)));
+        return Arrays.stream(Route.values())
+                .flatMap(route -> Stream.of("", "not-a-jwt").map(token -> Arguments.of(route, token)));
     }
 
     @ParameterizedTest
     @MethodSource("unconfiguredRoutes")
-    void deniesUnconfiguredApiRoutesEvenWithAllScopes(HttpMethod method, String path)
-            throws Exception {
+    void deniesUnconfiguredApiRoutesEvenWithAllScopes(HttpMethod method, String path) throws Exception {
         mockMvc.perform(bearer(request(method, path), SIGNING.token(MERCHANT)))
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
@@ -170,7 +178,8 @@ class JwtScopeAuthorizationIntegrationTests {
 
     @Test
     void deniesMissingScopeBeforeParsingRequestBody() throws Exception {
-        mockMvc.perform(bearer(operation(Route.CREATE, "malformed").content("{broken"),
+        mockMvc.perform(bearer(
+                        operation(Route.CREATE, "malformed").content("{broken"),
                         SIGNING.tokenWithScopes(MERCHANT, "payments:read")))
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
@@ -184,9 +193,9 @@ class JwtScopeAuthorizationIntegrationTests {
     @Test
     void deniesRefundBeforeCheckingOwnershipWhenScopeIsMissing() throws Exception {
         // Mirrors merchant B's configured scopes, but not a live Keycloak token.
-        mockMvc.perform(bearer(operation(Route.REFUND, "outsider"),
-                        SIGNING.tokenWithScopes("merchant-b-client",
-                                "payments:create payments:read")))
+        mockMvc.perform(bearer(
+                        operation(Route.REFUND, "outsider"),
+                        SIGNING.tokenWithScopes("merchant-b-client", "payments:create payments:read")))
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(403))
@@ -222,8 +231,7 @@ class JwtScopeAuthorizationIntegrationTests {
 
     private void assertUnchanged() {
         assertCounts(1, 0, 2, 1);
-        assertThat(payments.findById(paymentId).orElseThrow().getStatus())
-                .isEqualTo(PaymentStatus.APPROVED);
+        assertThat(payments.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.APPROVED);
     }
 
     private void assertCounts(long paymentCount, long refundCount, long eventCount, long recordCount) {

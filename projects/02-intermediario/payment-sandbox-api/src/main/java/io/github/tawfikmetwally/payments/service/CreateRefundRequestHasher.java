@@ -4,15 +4,13 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
-
 import org.springframework.stereotype.Component;
 
 @Component
 public class CreateRefundRequestHasher {
 
     public String hash(CreateRefundCommand command) {
-        String payload = encodeField(command.paymentId().toString())
-                + encodeField(command.reason());
+        String payload = encodeField(command.paymentId().toString()) + encodeField(command.reason());
 
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

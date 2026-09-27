@@ -2,18 +2,16 @@ package io.github.tawfikmetwally.payments.dto.request;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
+import jakarta.validation.ValidatorFactory;
 import java.util.Set;
-
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-
-import jakarta.validation.ConstraintViolation;
-import jakarta.validation.Validation;
-import jakarta.validation.Validator;
-import jakarta.validation.ValidatorFactory;
 
 class CreatePaymentRequestValidationTests {
 
@@ -43,7 +41,7 @@ class CreatePaymentRequestValidationTests {
     }
 
     @ParameterizedTest
-    @ValueSource(longs = { 0, -1 })
+    @ValueSource(longs = {0, -1})
     void rejectsANonPositiveAmount(long amount) {
         assertViolationFor(request(amount, "BRL", "ORDER-123", "tok_approved"), "amount");
     }
@@ -59,7 +57,7 @@ class CreatePaymentRequestValidationTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = { " ", "brl", "BR", "BRLL" })
+    @ValueSource(strings = {" ", "brl", "BR", "BRLL"})
     void rejectsAnInvalidCurrencyFormat(String currency) {
         assertViolationFor(request(10_000L, currency, "ORDER-123", "tok_approved"), "currency");
     }
@@ -75,10 +73,7 @@ class CreatePaymentRequestValidationTests {
     }
 
     private static CreatePaymentRequest request(
-            Long amount,
-            String currency,
-            String merchantReference,
-            String paymentMethodToken) {
+            Long amount, String currency, String merchantReference, String paymentMethodToken) {
         return new CreatePaymentRequest(amount, currency, merchantReference, paymentMethodToken);
     }
 

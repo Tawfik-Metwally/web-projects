@@ -1,5 +1,6 @@
 package io.github.tawfikmetwally.payments.entity;
 
+import io.github.tawfikmetwally.payments.enums.IdempotencyOperation;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -10,19 +11,18 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.UUID;
-
-import io.github.tawfikmetwally.payments.enums.IdempotencyOperation;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(
         name = "idempotency_records",
-        uniqueConstraints = @UniqueConstraint(
-                name = "uq_idempotency_records_merchant_operation_key",
-                columnNames = {"merchant_id", "operation_type", "idempotency_key"}))
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uq_idempotency_records_merchant_operation_key",
+                        columnNames = {"merchant_id", "operation_type", "idempotency_key"}))
 public class IdempotencyRecordEntity {
 
     @Id
@@ -50,8 +50,7 @@ public class IdempotencyRecordEntity {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    protected IdempotencyRecordEntity() {
-    }
+    protected IdempotencyRecordEntity() {}
 
     public IdempotencyRecordEntity(
             UUID id,

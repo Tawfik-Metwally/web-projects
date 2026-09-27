@@ -1,12 +1,11 @@
-package io.github.tawfikmetwally.payments.config;
+package io.github.tawfikmetwally.payments.security;
 
-import java.io.IOException;
-import java.net.URI;
-
+import io.github.tawfikmetwally.payments.observability.TraceContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-
+import java.io.IOException;
+import java.net.URI;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
@@ -16,15 +15,11 @@ import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.server.resource.BearerTokenError;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
 import org.springframework.security.web.AuthenticationEntryPoint;
-
 import tools.jackson.databind.ObjectMapper;
-
-import io.github.tawfikmetwally.payments.observability.TraceContext;
 
 public final class ProblemAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
-    private final BearerTokenAuthenticationEntryPoint delegate =
-            new BearerTokenAuthenticationEntryPoint();
+    private final BearerTokenAuthenticationEntryPoint delegate = new BearerTokenAuthenticationEntryPoint();
     private final ObjectMapper objectMapper;
 
     public ProblemAuthenticationEntryPoint(ObjectMapper objectMapper) {
@@ -32,8 +27,8 @@ public final class ProblemAuthenticationEntryPoint implements AuthenticationEntr
     }
 
     @Override
-    public void commence(HttpServletRequest request, HttpServletResponse response,
-            AuthenticationException exception) throws IOException, ServletException {
+    public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException exception)
+            throws IOException, ServletException {
         if (response.isCommitted()) {
             return;
         }
@@ -55,8 +50,8 @@ public final class ProblemAuthenticationEntryPoint implements AuthenticationEntr
             OAuth2Error error = oauthException.getError();
             // Preserve the protocol code/status without publishing decoder diagnostics.
             OAuth2Error safeError = error instanceof BearerTokenError bearerError
-                    ? new BearerTokenError(error.getErrorCode(), bearerError.getHttpStatus(),
-                            null, null, bearerError.getScope())
+                    ? new BearerTokenError(
+                            error.getErrorCode(), bearerError.getHttpStatus(), null, null, bearerError.getScope())
                     : new OAuth2Error(error.getErrorCode());
             return new OAuth2AuthenticationException(safeError);
         }

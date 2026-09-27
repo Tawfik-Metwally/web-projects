@@ -1,11 +1,9 @@
 package io.github.tawfikmetwally.payments.config;
 
+import io.github.tawfikmetwally.payments.simulator.DeterministicPaymentSimulator;
 import java.time.Clock;
-
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import io.github.tawfikmetwally.payments.simulator.DeterministicPaymentSimulator;
 
 @Configuration
 class PaymentApplicationConfiguration {

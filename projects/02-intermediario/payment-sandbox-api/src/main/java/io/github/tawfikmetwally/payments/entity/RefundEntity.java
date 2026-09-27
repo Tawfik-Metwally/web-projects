@@ -1,5 +1,8 @@
 package io.github.tawfikmetwally.payments.entity;
 
+import io.github.tawfikmetwally.payments.domain.Money;
+import io.github.tawfikmetwally.payments.domain.Refund;
+import io.github.tawfikmetwally.payments.enums.RefundStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -13,10 +16,6 @@ import java.time.Instant;
 import java.util.Currency;
 import java.util.Objects;
 import java.util.UUID;
-
-import io.github.tawfikmetwally.payments.domain.Money;
-import io.github.tawfikmetwally.payments.domain.Refund;
-import io.github.tawfikmetwally.payments.enums.RefundStatus;
 
 @Entity
 @Table(name = "refunds")
@@ -43,16 +42,10 @@ public class RefundEntity {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    protected RefundEntity() {
-    }
+    protected RefundEntity() {}
 
     public RefundEntity(
-            UUID id,
-            PaymentEntity payment,
-            long amountMinor,
-            RefundStatus status,
-            String reason,
-            Instant createdAt) {
+            UUID id, PaymentEntity payment, long amountMinor, RefundStatus status, String reason, Instant createdAt) {
         this.id = id;
         this.payment = payment;
         this.amountMinor = amountMinor;
@@ -61,14 +54,11 @@ public class RefundEntity {
         this.createdAt = createdAt;
     }
 
-    public static RefundEntity fromDomain(
-            Refund refund,
-            PaymentEntity payment) {
+    public static RefundEntity fromDomain(Refund refund, PaymentEntity payment) {
         Objects.requireNonNull(refund, "refund must not be null");
         Objects.requireNonNull(payment, "payment must not be null");
         if (!refund.getPaymentId().equals(payment.getId())) {
-            throw new IllegalArgumentException(
-                    "refund paymentId must match payment entity id");
+            throw new IllegalArgumentException("refund paymentId must match payment entity id");
         }
 
         return new RefundEntity(
@@ -81,16 +71,8 @@ public class RefundEntity {
     }
 
     public Refund toDomain() {
-        Money money = new Money(
-                amountMinor,
-                Currency.getInstance(payment.getCurrency()));
-        return Refund.restore(
-                id,
-                payment.getId(),
-                money,
-                status,
-                reason,
-                createdAt);
+        Money money = new Money(amountMinor, Currency.getInstance(payment.getCurrency()));
+        return Refund.restore(id, payment.getId(), money, status, reason, createdAt);
     }
 
     public UUID getId() {

@@ -1,14 +1,12 @@
 package io.github.tawfikmetwally.payments.observability;
 
-import java.io.IOException;
-import java.util.UUID;
-import java.util.function.Supplier;
-
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-
+import java.io.IOException;
+import java.util.UUID;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -36,10 +34,8 @@ public final class RequestTraceFilter extends OncePerRequestFilter {
     }
 
     @Override
-    protected void doFilterInternal(
-            HttpServletRequest request,
-            HttpServletResponse response,
-            FilterChain filterChain) throws ServletException, IOException {
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
         String traceId = traceIdSupplier.get();
         String previousTraceId = MDC.get(TraceContext.TRACE_ID);
         long startedAt = System.nanoTime();
@@ -58,12 +54,18 @@ public final class RequestTraceFilter extends OncePerRequestFilter {
             try {
                 long durationMillis = (System.nanoTime() - startedAt) / 1_000_000;
                 if (failure == null) {
-                    LOGGER.info("HTTP request completed method={} route={} status={} durationMs={}",
-                            request.getMethod(), route(request), response.getStatus(),
+                    LOGGER.info(
+                            "HTTP request completed method={} route={} status={} durationMs={}",
+                            request.getMethod(),
+                            route(request),
+                            response.getStatus(),
                             durationMillis);
                 } else {
-                    LOGGER.error("HTTP request failed method={} route={} status=500 durationMs={} failureType={}",
-                            request.getMethod(), route(request), durationMillis,
+                    LOGGER.error(
+                            "HTTP request failed method={} route={} status=500 durationMs={} failureType={}",
+                            request.getMethod(),
+                            route(request),
+                            durationMillis,
                             failure.getClass().getName());
                 }
             } finally {

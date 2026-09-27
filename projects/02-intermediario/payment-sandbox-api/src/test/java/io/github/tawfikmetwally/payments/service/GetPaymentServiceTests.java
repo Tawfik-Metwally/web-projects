@@ -7,30 +7,26 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-import java.time.Instant;
-import java.util.Optional;
-import java.util.UUID;
-
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import io.github.tawfikmetwally.payments.domain.Payment;
 import io.github.tawfikmetwally.payments.entity.PaymentEntity;
 import io.github.tawfikmetwally.payments.exception.PaymentNotFoundException;
-import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentRepository;
+import java.util.Optional;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 class GetPaymentServiceTests {
 
-    private static final UUID PAYMENT_ID =
-            UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
+    private static final UUID PAYMENT_ID = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
     private static final String MERCHANT_ID = "merchant-a";
 
-    private PaymentJpaRepository paymentRepository;
+    private PaymentRepository paymentRepository;
     private GetPaymentService service;
 
     @BeforeEach
     void setUp() {
-        paymentRepository = mock(PaymentJpaRepository.class);
+        paymentRepository = mock(PaymentRepository.class);
         service = new GetPaymentService(paymentRepository);
     }
 
@@ -38,8 +34,7 @@ class GetPaymentServiceTests {
     void returnsPaymentFoundForMerchant() {
         Payment expectedPayment = mock(Payment.class);
         PaymentEntity paymentEntity = mock(PaymentEntity.class);
-        when(paymentRepository.findByIdAndMerchantId(PAYMENT_ID, MERCHANT_ID))
-                .thenReturn(Optional.of(paymentEntity));
+        when(paymentRepository.findByIdAndMerchantId(PAYMENT_ID, MERCHANT_ID)).thenReturn(Optional.of(paymentEntity));
         when(paymentEntity.toDomain()).thenReturn(expectedPayment);
 
         Payment result = service.getById(PAYMENT_ID, MERCHANT_ID);
@@ -52,8 +47,7 @@ class GetPaymentServiceTests {
 
     @Test
     void throwsNotFoundWhenPaymentIsUnavailableToMerchant() {
-        when(paymentRepository.findByIdAndMerchantId(PAYMENT_ID, MERCHANT_ID))
-                .thenReturn(Optional.empty());
+        when(paymentRepository.findByIdAndMerchantId(PAYMENT_ID, MERCHANT_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.getById(PAYMENT_ID, MERCHANT_ID))
                 .isInstanceOf(PaymentNotFoundException.class)

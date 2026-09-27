@@ -1,14 +1,5 @@
 package io.github.tawfikmetwally.payments.service;
 
-import java.time.Clock;
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import io.github.tawfikmetwally.payments.domain.Money;
 import io.github.tawfikmetwally.payments.domain.Payment;
 import io.github.tawfikmetwally.payments.entity.IdempotencyRecordEntity;
@@ -19,24 +10,31 @@ import io.github.tawfikmetwally.payments.enums.PaymentDecision;
 import io.github.tawfikmetwally.payments.enums.PaymentEventType;
 import io.github.tawfikmetwally.payments.enums.PaymentStatus;
 import io.github.tawfikmetwally.payments.exception.IdempotencyConflictException;
-import io.github.tawfikmetwally.payments.repository.IdempotencyRecordJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
+import io.github.tawfikmetwally.payments.repository.IdempotencyRecordRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentEventRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentRepository;
 import io.github.tawfikmetwally.payments.simulator.DeterministicPaymentSimulator;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class CreatePaymentTransaction {
 
-    private final PaymentJpaRepository paymentRepository;
-    private final PaymentEventJpaRepository paymentEventRepository;
-    private final IdempotencyRecordJpaRepository idempotencyRecordRepository;
+    private final PaymentRepository paymentRepository;
+    private final PaymentEventRepository paymentEventRepository;
+    private final IdempotencyRecordRepository idempotencyRecordRepository;
     private final DeterministicPaymentSimulator paymentSimulator;
     private final Clock clock;
 
     public CreatePaymentTransaction(
-            PaymentJpaRepository paymentRepository,
-            PaymentEventJpaRepository paymentEventRepository,
-            IdempotencyRecordJpaRepository idempotencyRecordRepository,
+            PaymentRepository paymentRepository,
+            PaymentEventRepository paymentEventRepository,
+            IdempotencyRecordRepository idempotencyRecordRepository,
             DeterministicPaymentSimulator paymentSimulator,
             Clock clock) {
         this.paymentRepository = paymentRepository;
@@ -65,9 +63,8 @@ public class CreatePaymentTransaction {
         applyDecision(payment, decision, occurredAt);
 
         PaymentEntity paymentEntity = paymentRepository.save(PaymentEntity.fromDomain(payment));
-        paymentEventRepository.saveAll(List.of(
-                createdEvent(paymentEntity, occurredAt),
-                decisionEvent(paymentEntity, decision, occurredAt)));
+        paymentEventRepository.saveAll(
+                List.of(createdEvent(paymentEntity, occurredAt), decisionEvent(paymentEntity, decision, occurredAt)));
 
         idempotencyRecordRepository.saveAndFlush(new IdempotencyRecordEntity(
                 UUID.randomUUID(),
@@ -84,23 +81,17 @@ public class CreatePaymentTransaction {
     @Transactional(readOnly = true)
     public CreatePaymentResult replay(CreatePaymentCommand command, String requestHash) {
         IdempotencyRecordEntity record = findRecord(command)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Idempotency winner was not found after unique constraint conflict"));
+                .orElseThrow(() ->
+                        new IllegalStateException("Idempotency winner was not found after unique constraint conflict"));
         return toReplayResult(record, requestHash);
     }
 
-    private Optional<IdempotencyRecordEntity> findRecord(
-            CreatePaymentCommand command) {
-        return idempotencyRecordRepository
-                .findByMerchantIdAndOperationTypeAndIdempotencyKey(
-                        command.merchantId(),
-                        IdempotencyOperation.CREATE_PAYMENT,
-                        command.idempotencyKey());
+    private Optional<IdempotencyRecordEntity> findRecord(CreatePaymentCommand command) {
+        return idempotencyRecordRepository.findByMerchantIdAndOperationTypeAndIdempotencyKey(
+                command.merchantId(), IdempotencyOperation.CREATE_PAYMENT, command.idempotencyKey());
     }
 
-    private CreatePaymentResult toReplayResult(
-            IdempotencyRecordEntity record,
-            String requestHash) {
+    private CreatePaymentResult toReplayResult(IdempotencyRecordEntity record, String requestHash) {
         if (!record.getRequestHash().equals(requestHash)) {
             throw new IdempotencyConflictException();
         }
@@ -117,29 +108,17 @@ public class CreatePaymentTransaction {
 
     private PaymentEventEntity createdEvent(PaymentEntity payment, Instant occurredAt) {
         return new PaymentEventEntity(
-                UUID.randomUUID(),
-                payment,
-                PaymentEventType.PAYMENT_CREATED,
-                null,
-                PaymentStatus.PENDING,
-                occurredAt);
+                UUID.randomUUID(), payment, PaymentEventType.PAYMENT_CREATED, null, PaymentStatus.PENDING, occurredAt);
     }
 
-    private PaymentEventEntity decisionEvent(
-            PaymentEntity payment,
-            PaymentDecision decision,
-            Instant occurredAt) {
-        PaymentEventType eventType = switch (decision) {
-            case APPROVE -> PaymentEventType.PAYMENT_APPROVED;
-            case DECLINE -> PaymentEventType.PAYMENT_DECLINED;
-        };
+    private PaymentEventEntity decisionEvent(PaymentEntity payment, PaymentDecision decision, Instant occurredAt) {
+        PaymentEventType eventType =
+                switch (decision) {
+                    case APPROVE -> PaymentEventType.PAYMENT_APPROVED;
+                    case DECLINE -> PaymentEventType.PAYMENT_DECLINED;
+                };
 
         return new PaymentEventEntity(
-                UUID.randomUUID(),
-                payment,
-                eventType,
-                PaymentStatus.PENDING,
-                payment.getStatus(),
-                occurredAt);
+                UUID.randomUUID(), payment, eventType, PaymentStatus.PENDING, payment.getStatus(), occurredAt);
     }
 }

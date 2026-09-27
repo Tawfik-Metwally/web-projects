@@ -8,5 +8,4 @@ public record CreatePaymentCommand(
         long amountMinor,
         Currency currency,
         String merchantReference,
-        String paymentMethodToken) {
-}
+        String paymentMethodToken) {}

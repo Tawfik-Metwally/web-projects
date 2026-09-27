@@ -1,6 +1,6 @@
-package io.github.tawfikmetwally.payments;
+package io.github.tawfikmetwally.payments.integration;
 
-import static io.github.tawfikmetwally.payments.JwtTestAuthentication.merchantJwt;
+import static io.github.tawfikmetwally.payments.support.JwtTestAuthentication.merchantJwt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -9,8 +9,21 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
+import io.github.tawfikmetwally.payments.TestcontainersConfiguration;
+import io.github.tawfikmetwally.payments.entity.IdempotencyRecordEntity;
+import io.github.tawfikmetwally.payments.entity.PaymentEntity;
+import io.github.tawfikmetwally.payments.enums.IdempotencyOperation;
+import io.github.tawfikmetwally.payments.enums.PaymentEventType;
+import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import io.github.tawfikmetwally.payments.repository.IdempotencyRecordRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentEventRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentRepository;
+import io.github.tawfikmetwally.payments.repository.RefundRepository;
+import jakarta.persistence.EntityManager;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -18,12 +31,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.UUID;
-
-import com.jayway.jsonpath.JsonPath;
-
-import jakarta.persistence.EntityManager;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,20 +38,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
-
-import io.github.tawfikmetwally.payments.entity.IdempotencyRecordEntity;
-import io.github.tawfikmetwally.payments.entity.PaymentEntity;
-import io.github.tawfikmetwally.payments.enums.IdempotencyOperation;
-import io.github.tawfikmetwally.payments.enums.PaymentEventType;
-import io.github.tawfikmetwally.payments.enums.PaymentStatus;
-import io.github.tawfikmetwally.payments.repository.IdempotencyRecordJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
-import io.github.tawfikmetwally.payments.repository.RefundJpaRepository;
 
 @Import(TestcontainersConfiguration.class)
 @AutoConfigureMockMvc
@@ -59,16 +56,16 @@ class PaymentCreationIntegrationTests {
     private MockMvc mockMvc;
 
     @Autowired
-    private PaymentJpaRepository paymentRepository;
+    private PaymentRepository paymentRepository;
 
     @Autowired
-    private PaymentEventJpaRepository paymentEventRepository;
+    private PaymentEventRepository paymentEventRepository;
 
     @Autowired
-    private RefundJpaRepository refundRepository;
+    private RefundRepository refundRepository;
 
     @MockitoSpyBean
-    private IdempotencyRecordJpaRepository idempotencyRecordRepository;
+    private IdempotencyRecordRepository idempotencyRecordRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -92,26 +89,18 @@ class PaymentCreationIntegrationTests {
                 .andReturn();
 
         UUID paymentId = paymentIdFromLocation(creation);
-        PaymentEntity payment = paymentRepository
-                .findByIdAndMerchantId(paymentId, MERCHANT_ID)
-                .orElseThrow();
+        PaymentEntity payment =
+                paymentRepository.findByIdAndMerchantId(paymentId, MERCHANT_ID).orElseThrow();
 
         assertThat(payment.getAmountMinor()).isEqualTo(10_000);
         assertThat(payment.getCurrency()).isEqualTo("BRL");
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVED);
-        assertThat(paymentEventRepository
-                        .findByPayment_IdAndPayment_MerchantIdOrderByOccurredAtAsc(
-                                paymentId,
-                                MERCHANT_ID))
+        assertThat(paymentEventRepository.findByPayment_IdAndPayment_MerchantIdOrderByOccurredAtAsc(
+                        paymentId, MERCHANT_ID))
                 .extracting(event -> event.getEventType())
-                .containsExactlyInAnyOrder(
-                        PaymentEventType.PAYMENT_CREATED,
-                        PaymentEventType.PAYMENT_APPROVED);
-        assertThat(idempotencyRecordRepository
-                        .findByMerchantIdAndOperationTypeAndIdempotencyKey(
-                                MERCHANT_ID,
-                                IdempotencyOperation.CREATE_PAYMENT,
-                                IDEMPOTENCY_KEY))
+                .containsExactlyInAnyOrder(PaymentEventType.PAYMENT_CREATED, PaymentEventType.PAYMENT_APPROVED);
+        assertThat(idempotencyRecordRepository.findByMerchantIdAndOperationTypeAndIdempotencyKey(
+                        MERCHANT_ID, IdempotencyOperation.CREATE_PAYMENT, IDEMPOTENCY_KEY))
                 .isPresent();
     }
 
@@ -143,8 +132,7 @@ class PaymentCreationIntegrationTests {
                 .andExpect(header().doesNotExist("Idempotency-Replayed"));
 
         assertPersistedCounts(1, 2, 1);
-        assertThat(paymentRepository
-                        .findByIdAndMerchantId(paymentId, MERCHANT_ID))
+        assertThat(paymentRepository.findByIdAndMerchantId(paymentId, MERCHANT_ID))
                 .isPresent()
                 .get()
                 .extracting(PaymentEntity::getAmountMinor)
@@ -152,22 +140,16 @@ class PaymentCreationIntegrationTests {
     }
 
     @Test
-    void replaysTheLosingConcurrentRequestAfterRealUniqueConstraintRollback()
-            throws Exception {
+    void replaysTheLosingConcurrentRequestAfterRealUniqueConstraintRollback() throws Exception {
         String concurrentKey = "idem-concurrent-123";
-        AtomicInteger lookupCount = synchronizeInitialIdempotencyLookups(
-                concurrentKey);
+        AtomicInteger lookupCount = synchronizeInitialIdempotencyLookups(concurrentKey);
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Callable<MvcResult> createPayment = () -> mockMvc
-                    .perform(request(concurrentKey, 10_000))
-                    .andReturn();
+            Callable<MvcResult> createPayment =
+                    () -> mockMvc.perform(request(concurrentKey, 10_000)).andReturn();
 
-            List<MvcResult> results = concurrentResults(
-                    executor,
-                    createPayment,
-                    createPayment);
+            List<MvcResult> results = concurrentResults(executor, createPayment, createPayment);
 
             assertThat(results)
                     .extracting(result -> result.getResponse().getStatus())
@@ -175,16 +157,11 @@ class PaymentCreationIntegrationTests {
 
             MvcResult created = resultWithStatus(results, 201);
             MvcResult replayed = resultWithStatus(results, 200);
-            String createdPaymentId = JsonPath.read(
-                    created.getResponse().getContentAsString(),
-                    "$.id");
-            String replayedPaymentId = JsonPath.read(
-                    replayed.getResponse().getContentAsString(),
-                    "$.id");
+            String createdPaymentId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+            String replayedPaymentId = JsonPath.read(replayed.getResponse().getContentAsString(), "$.id");
 
             assertThat(replayedPaymentId).isEqualTo(createdPaymentId);
-            assertThat(replayed.getResponse().getHeader("Idempotency-Replayed"))
-                    .isEqualTo("true");
+            assertThat(replayed.getResponse().getHeader("Idempotency-Replayed")).isEqualTo("true");
             assertThat(lookupCount).hasValue(3);
             assertPersistedCounts(1, 2, 1);
         } finally {
@@ -193,25 +170,18 @@ class PaymentCreationIntegrationTests {
     }
 
     @Test
-    void rejectsLosingConcurrentRequestWhenSameKeyHasDifferentPayload()
-            throws Exception {
+    void rejectsLosingConcurrentRequestWhenSameKeyHasDifferentPayload() throws Exception {
         String concurrentKey = "idem-concurrent-conflict-123";
-        AtomicInteger lookupCount = synchronizeInitialIdempotencyLookups(
-                concurrentKey);
+        AtomicInteger lookupCount = synchronizeInitialIdempotencyLookups(concurrentKey);
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Callable<MvcResult> firstPayment = () -> mockMvc
-                    .perform(request(concurrentKey, 10_000))
-                    .andReturn();
-            Callable<MvcResult> secondPayment = () -> mockMvc
-                    .perform(request(concurrentKey, 20_000))
-                    .andReturn();
+            Callable<MvcResult> firstPayment =
+                    () -> mockMvc.perform(request(concurrentKey, 10_000)).andReturn();
+            Callable<MvcResult> secondPayment =
+                    () -> mockMvc.perform(request(concurrentKey, 20_000)).andReturn();
 
-            List<MvcResult> results = concurrentResults(
-                    executor,
-                    firstPayment,
-                    secondPayment);
+            List<MvcResult> results = concurrentResults(executor, firstPayment, secondPayment);
 
             assertThat(results)
                     .extracting(result -> result.getResponse().getStatus())
@@ -219,13 +189,10 @@ class PaymentCreationIntegrationTests {
 
             MvcResult created = resultWithStatus(results, 201);
             MvcResult conflict = resultWithStatus(results, 409);
-            Number createdAmount = JsonPath.read(
-                    created.getResponse().getContentAsString(),
-                    "$.amount");
+            Number createdAmount = JsonPath.read(created.getResponse().getContentAsString(), "$.amount");
 
             assertThat(conflict.getResponse().getHeader("Location")).isNull();
-            assertThat(conflict.getResponse().getHeader("Idempotency-Replayed"))
-                    .isNull();
+            assertThat(conflict.getResponse().getHeader("Idempotency-Replayed")).isNull();
             assertThat(lookupCount).hasValue(3);
             assertPersistedCounts(1, 2, 1);
             assertThat(paymentRepository.findAll())
@@ -237,43 +204,35 @@ class PaymentCreationIntegrationTests {
         }
     }
 
-    private AtomicInteger synchronizeInitialIdempotencyLookups(
-            String idempotencyKey) {
+    private AtomicInteger synchronizeInitialIdempotencyLookups(String idempotencyKey) {
         CyclicBarrier bothInitialLookupsCompleted = new CyclicBarrier(2);
         AtomicInteger lookupCount = new AtomicInteger();
 
         doAnswer(invocation -> {
-            int currentLookup = lookupCount.incrementAndGet();
-            String merchantId = invocation.getArgument(0);
-            IdempotencyOperation operation = invocation.getArgument(1);
-            String requestedKey = invocation.getArgument(2);
-            Optional<IdempotencyRecordEntity> result = findIdempotencyRecord(
-                    merchantId,
-                    operation,
-                    requestedKey);
-            if (currentLookup <= 2) {
-                assertThat(result).isEmpty();
-                bothInitialLookupsCompleted.await(10, TimeUnit.SECONDS);
-            }
-            return result;
-        }).when(idempotencyRecordRepository)
+                    int currentLookup = lookupCount.incrementAndGet();
+                    String merchantId = invocation.getArgument(0);
+                    IdempotencyOperation operation = invocation.getArgument(1);
+                    String requestedKey = invocation.getArgument(2);
+                    Optional<IdempotencyRecordEntity> result =
+                            findIdempotencyRecord(merchantId, operation, requestedKey);
+                    if (currentLookup <= 2) {
+                        assertThat(result).isEmpty();
+                        bothInitialLookupsCompleted.await(10, TimeUnit.SECONDS);
+                    }
+                    return result;
+                })
+                .when(idempotencyRecordRepository)
                 .findByMerchantIdAndOperationTypeAndIdempotencyKey(
-                        eq(MERCHANT_ID),
-                        eq(IdempotencyOperation.CREATE_PAYMENT),
-                        eq(idempotencyKey));
+                        eq(MERCHANT_ID), eq(IdempotencyOperation.CREATE_PAYMENT), eq(idempotencyKey));
 
         return lookupCount;
     }
 
     private List<MvcResult> concurrentResults(
-            ExecutorService executor,
-            Callable<MvcResult> first,
-            Callable<MvcResult> second) throws Exception {
+            ExecutorService executor, Callable<MvcResult> first, Callable<MvcResult> second) throws Exception {
         Future<MvcResult> firstAttempt = executor.submit(first);
         Future<MvcResult> secondAttempt = executor.submit(second);
-        return List.of(
-                firstAttempt.get(20, TimeUnit.SECONDS),
-                secondAttempt.get(20, TimeUnit.SECONDS));
+        return List.of(firstAttempt.get(20, TimeUnit.SECONDS), secondAttempt.get(20, TimeUnit.SECONDS));
     }
 
     private MockHttpServletRequestBuilder request(String idempotencyKey, long amount) {
@@ -306,10 +265,9 @@ class PaymentCreationIntegrationTests {
     }
 
     private Optional<IdempotencyRecordEntity> findIdempotencyRecord(
-            String merchantId,
-            IdempotencyOperation operation,
-            String idempotencyKey) {
-        return entityManager.createQuery("""
+            String merchantId, IdempotencyOperation operation, String idempotencyKey) {
+        return entityManager
+                .createQuery("""
                         select record
                         from IdempotencyRecordEntity record
                         join fetch record.payment
@@ -326,10 +284,7 @@ class PaymentCreationIntegrationTests {
                 .findFirst();
     }
 
-    private void assertPersistedCounts(
-            long payments,
-            long paymentEvents,
-            long idempotencyRecords) {
+    private void assertPersistedCounts(long payments, long paymentEvents, long idempotencyRecords) {
         assertThat(paymentRepository.count()).isEqualTo(payments);
         assertThat(paymentEventRepository.count()).isEqualTo(paymentEvents);
         assertThat(idempotencyRecordRepository.count()).isEqualTo(idempotencyRecords);

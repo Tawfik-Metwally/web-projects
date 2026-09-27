@@ -1,6 +1,6 @@
-package io.github.tawfikmetwally.payments;
+package io.github.tawfikmetwally.payments.integration;
 
-import static io.github.tawfikmetwally.payments.JwtTestAuthentication.merchantJwt;
+import static io.github.tawfikmetwally.payments.support.JwtTestAuthentication.merchantJwt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -11,6 +11,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
+import io.github.tawfikmetwally.payments.TestcontainersConfiguration;
+import io.github.tawfikmetwally.payments.entity.PaymentEntity;
+import io.github.tawfikmetwally.payments.enums.IdempotencyOperation;
+import io.github.tawfikmetwally.payments.enums.PaymentEventType;
+import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import io.github.tawfikmetwally.payments.repository.IdempotencyRecordRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentEventRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentRepository;
+import io.github.tawfikmetwally.payments.repository.RefundRepository;
+import jakarta.persistence.EntityManager;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -22,11 +33,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import com.jayway.jsonpath.JsonPath;
-
-import jakarta.persistence.EntityManager;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -41,15 +47,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import io.github.tawfikmetwally.payments.entity.PaymentEntity;
-import io.github.tawfikmetwally.payments.enums.IdempotencyOperation;
-import io.github.tawfikmetwally.payments.enums.PaymentEventType;
-import io.github.tawfikmetwally.payments.enums.PaymentStatus;
-import io.github.tawfikmetwally.payments.repository.IdempotencyRecordJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
-import io.github.tawfikmetwally.payments.repository.RefundJpaRepository;
-
 @Import(TestcontainersConfiguration.class)
 @AutoConfigureMockMvc
 @SpringBootTest
@@ -58,23 +55,22 @@ class RefundIntegrationTests {
     private static final String PAYMENTS_ENDPOINT = "/api/v1/payments";
     private static final String MERCHANT_A = "merchant-refund-a";
     private static final String MERCHANT_B = "merchant-refund-b";
-    private static final Instant BASE_TIME = Instant.parse(
-            "2026-09-12T10:00:00Z");
+    private static final Instant BASE_TIME = Instant.parse("2026-09-12T10:00:00Z");
 
     @Autowired
     private MockMvc mockMvc;
 
     @MockitoSpyBean
-    private PaymentJpaRepository paymentRepository;
+    private PaymentRepository paymentRepository;
 
     @Autowired
-    private PaymentEventJpaRepository paymentEventRepository;
+    private PaymentEventRepository paymentEventRepository;
 
     @Autowired
-    private RefundJpaRepository refundRepository;
+    private RefundRepository refundRepository;
 
     @Autowired
-    private IdempotencyRecordJpaRepository idempotencyRecordRepository;
+    private IdempotencyRecordRepository idempotencyRecordRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -91,91 +87,60 @@ class RefundIntegrationTests {
     void createsFullRefundEventAndQueryableHistory() throws Exception {
         UUID paymentId = createApprovedPayment("payment-key-success");
 
-        MvcResult refundResult = mockMvc.perform(refundRequest(
-                        paymentId,
-                        MERCHANT_A,
-                        "refund-key-success",
-                        "CUSTOMER_REQUEST"))
+        MvcResult refundResult = mockMvc.perform(
+                        refundRequest(paymentId, MERCHANT_A, "refund-key-success", "CUSTOMER_REQUEST"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.paymentId").value(paymentId.toString()))
                 .andExpect(jsonPath("$.amount").value(10_000))
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.reason").value("CUSTOMER_REQUEST"))
                 .andReturn();
-        String refundId = JsonPath.read(
-                refundResult.getResponse().getContentAsString(),
-                "$.id");
+        String refundId = JsonPath.read(refundResult.getResponse().getContentAsString(), "$.id");
 
-        PaymentEntity payment = paymentRepository
-                .findByIdAndMerchantId(paymentId, MERCHANT_A)
-                .orElseThrow();
+        PaymentEntity payment =
+                paymentRepository.findByIdAndMerchantId(paymentId, MERCHANT_A).orElseThrow();
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
-        assertThat(refundRepository
-                        .findByPayment_IdAndPayment_MerchantId(
-                                paymentId,
-                                MERCHANT_A))
+        assertThat(refundRepository.findByPayment_IdAndPayment_MerchantId(paymentId, MERCHANT_A))
                 .isPresent()
                 .get()
                 .satisfies(refund -> {
                     assertThat(refund.getId().toString()).isEqualTo(refundId);
                     assertThat(refund.getAmountMinor()).isEqualTo(10_000);
                 });
-        assertThat(paymentEventRepository
-                        .findByPayment_IdAndPayment_MerchantIdOrderByOccurredAtAsc(
-                                paymentId,
-                                MERCHANT_A))
+        assertThat(paymentEventRepository.findByPayment_IdAndPayment_MerchantIdOrderByOccurredAtAsc(
+                        paymentId, MERCHANT_A))
                 .extracting(event -> event.getEventType())
                 .containsExactlyInAnyOrder(
                         PaymentEventType.PAYMENT_CREATED,
                         PaymentEventType.PAYMENT_APPROVED,
                         PaymentEventType.PAYMENT_REFUNDED);
-        assertThat(idempotencyRecordRepository
-                        .findByMerchantIdAndOperationTypeAndIdempotencyKey(
-                                MERCHANT_A,
-                                IdempotencyOperation.CREATE_REFUND,
-                                "refund-key-success"))
+        assertThat(idempotencyRecordRepository.findByMerchantIdAndOperationTypeAndIdempotencyKey(
+                        MERCHANT_A, IdempotencyOperation.CREATE_REFUND, "refund-key-success"))
                 .isPresent();
 
-        MvcResult historyResult = mockMvc.perform(get(historyEndpoint(paymentId))
-                        .with(merchantJwt(MERCHANT_A)))
+        MvcResult historyResult = mockMvc.perform(
+                        get(historyEndpoint(paymentId)).with(merchantJwt(MERCHANT_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3))
-                .andExpect(jsonPath("$[2].eventType")
-                        .value("PAYMENT_REFUNDED"))
+                .andExpect(jsonPath("$[2].eventType").value("PAYMENT_REFUNDED"))
                 .andExpect(jsonPath("$[2].fromStatus").value("APPROVED"))
                 .andExpect(jsonPath("$[2].toStatus").value("REFUNDED"))
                 .andReturn();
-        List<String> eventTypes = JsonPath.read(
-                historyResult.getResponse().getContentAsString(),
-                "$[*].eventType");
-        assertThat(eventTypes).containsExactlyInAnyOrder(
-                "PAYMENT_CREATED",
-                "PAYMENT_APPROVED",
-                "PAYMENT_REFUNDED");
+        List<String> eventTypes = JsonPath.read(historyResult.getResponse().getContentAsString(), "$[*].eventType");
+        assertThat(eventTypes).containsExactlyInAnyOrder("PAYMENT_CREATED", "PAYMENT_APPROVED", "PAYMENT_REFUNDED");
         assertPersistedCounts(1, 1, 3, 2);
     }
 
     @Test
-    void replaysIdenticalRefundWithoutDuplicatingPersistedData()
-            throws Exception {
+    void replaysIdenticalRefundWithoutDuplicatingPersistedData() throws Exception {
         UUID paymentId = createApprovedPayment("payment-key-replay");
-        MockHttpServletRequestBuilder request = refundRequest(
-                paymentId,
-                MERCHANT_A,
-                "refund-key-replay",
-                "CUSTOMER_REQUEST");
-        MvcResult first = mockMvc.perform(request)
-                .andExpect(status().isCreated())
-                .andReturn();
-        String createdRefundId = JsonPath.read(
-                first.getResponse().getContentAsString(),
-                "$.id");
+        MockHttpServletRequestBuilder request =
+                refundRequest(paymentId, MERCHANT_A, "refund-key-replay", "CUSTOMER_REQUEST");
+        MvcResult first =
+                mockMvc.perform(request).andExpect(status().isCreated()).andReturn();
+        String createdRefundId = JsonPath.read(first.getResponse().getContentAsString(), "$.id");
 
-        mockMvc.perform(refundRequest(
-                        paymentId,
-                        MERCHANT_A,
-                        "refund-key-replay",
-                        "CUSTOMER_REQUEST"))
+        mockMvc.perform(refundRequest(paymentId, MERCHANT_A, "refund-key-replay", "CUSTOMER_REQUEST"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Idempotency-Replayed", "true"))
                 .andExpect(jsonPath("$.id").value(createdRefundId));
@@ -186,39 +151,22 @@ class RefundIntegrationTests {
     @Test
     void rejectsChangedReasonWithSameKeyWithoutPartialData() throws Exception {
         UUID paymentId = createApprovedPayment("payment-key-hash-conflict");
-        mockMvc.perform(refundRequest(
-                        paymentId,
-                        MERCHANT_A,
-                        "refund-key-hash-conflict",
-                        "CUSTOMER_REQUEST"))
+        mockMvc.perform(refundRequest(paymentId, MERCHANT_A, "refund-key-hash-conflict", "CUSTOMER_REQUEST"))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(refundRequest(
-                        paymentId,
-                        MERCHANT_A,
-                        "refund-key-hash-conflict",
-                        "DUPLICATE_CHARGE"))
+        mockMvc.perform(refundRequest(paymentId, MERCHANT_A, "refund-key-hash-conflict", "DUPLICATE_CHARGE"))
                 .andExpect(status().isConflict());
 
         assertPersistedCounts(1, 1, 3, 2);
     }
 
     @Test
-    void rejectsNewKeyForAlreadyRefundedPaymentWithoutPartialData()
-            throws Exception {
+    void rejectsNewKeyForAlreadyRefundedPaymentWithoutPartialData() throws Exception {
         UUID paymentId = createApprovedPayment("payment-key-second-refund");
-        mockMvc.perform(refundRequest(
-                        paymentId,
-                        MERCHANT_A,
-                        "refund-key-first",
-                        "CUSTOMER_REQUEST"))
+        mockMvc.perform(refundRequest(paymentId, MERCHANT_A, "refund-key-first", "CUSTOMER_REQUEST"))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(refundRequest(
-                        paymentId,
-                        MERCHANT_A,
-                        "refund-key-second",
-                        "CUSTOMER_REQUEST"))
+        mockMvc.perform(refundRequest(paymentId, MERCHANT_A, "refund-key-second", "CUSTOMER_REQUEST"))
                 .andExpect(status().isConflict());
 
         assertPersistedCounts(1, 1, 3, 2);
@@ -228,15 +176,11 @@ class RefundIntegrationTests {
     @EnumSource(
             value = PaymentStatus.class,
             names = {"PENDING", "DECLINED"})
-    void rejectsOwnPaymentInNonRefundableState(PaymentStatus status)
-            throws Exception {
+    void rejectsOwnPaymentInNonRefundableState(PaymentStatus status) throws Exception {
         PaymentEntity payment = savePayment(MERCHANT_A, status);
 
         mockMvc.perform(refundRequest(
-                        payment.getId(),
-                        MERCHANT_A,
-                        "refund-key-invalid-state-" + status,
-                        "CUSTOMER_REQUEST"))
+                        payment.getId(), MERCHANT_A, "refund-key-invalid-state-" + status, "CUSTOMER_REQUEST"))
                 .andExpect(status().isConflict());
 
         assertThat(paymentRepository.findById(payment.getId()))
@@ -249,11 +193,7 @@ class RefundIntegrationTests {
 
     @Test
     void returnsNotFoundForMissingPayment() throws Exception {
-        mockMvc.perform(refundRequest(
-                        UUID.randomUUID(),
-                        MERCHANT_A,
-                        "refund-key-missing",
-                        "CUSTOMER_REQUEST"))
+        mockMvc.perform(refundRequest(UUID.randomUUID(), MERCHANT_A, "refund-key-missing", "CUSTOMER_REQUEST"))
                 .andExpect(status().isNotFound());
 
         assertPersistedCounts(0, 0, 0, 0);
@@ -263,11 +203,7 @@ class RefundIntegrationTests {
     void hidesOtherMerchantPaymentDuringRefund() throws Exception {
         PaymentEntity payment = savePayment(MERCHANT_A, PaymentStatus.APPROVED);
 
-        mockMvc.perform(refundRequest(
-                        payment.getId(),
-                        MERCHANT_B,
-                        "refund-key-private",
-                        "CUSTOMER_REQUEST"))
+        mockMvc.perform(refundRequest(payment.getId(), MERCHANT_B, "refund-key-private", "CUSTOMER_REQUEST"))
                 .andExpect(status().isNotFound());
 
         assertThat(paymentRepository.findById(payment.getId()))
@@ -282,25 +218,20 @@ class RefundIntegrationTests {
     void hidesOtherMerchantPaymentHistory() throws Exception {
         UUID paymentId = createApprovedPayment("payment-key-private-history");
 
-        mockMvc.perform(get(historyEndpoint(paymentId))
-                        .with(merchantJwt(MERCHANT_B)))
+        mockMvc.perform(get(historyEndpoint(paymentId)).with(merchantJwt(MERCHANT_B)))
                 .andExpect(status().isNotFound());
 
         assertPersistedCounts(1, 0, 2, 1);
     }
 
     @Test
-    void replaysConcurrentRequestWithSameKeyAfterRealRollback()
-            throws Exception {
+    void replaysConcurrentRequestWithSameKeyAfterRealRollback() throws Exception {
         UUID paymentId = createApprovedPayment("payment-key-concurrent-replay");
         AtomicInteger lookupCount = synchronizeInitialPaymentLookups(paymentId);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Callable<MvcResult> refund = () -> mockMvc.perform(refundRequest(
-                            paymentId,
-                            MERCHANT_A,
-                            "refund-key-concurrent-same",
-                            "CUSTOMER_REQUEST"))
+            Callable<MvcResult> refund = () -> mockMvc.perform(
+                            refundRequest(paymentId, MERCHANT_A, "refund-key-concurrent-same", "CUSTOMER_REQUEST"))
                     .andReturn();
 
             List<MvcResult> results = concurrentResults(executor, refund, refund);
@@ -310,15 +241,10 @@ class RefundIntegrationTests {
                     .containsExactlyInAnyOrder(201, 200);
             MvcResult created = resultWithStatus(results, 201);
             MvcResult replayed = resultWithStatus(results, 200);
-            String createdRefundId = JsonPath.read(
-                    created.getResponse().getContentAsString(),
-                    "$.id");
-            String replayedRefundId = JsonPath.read(
-                    replayed.getResponse().getContentAsString(),
-                    "$.id");
+            String createdRefundId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+            String replayedRefundId = JsonPath.read(replayed.getResponse().getContentAsString(), "$.id");
             assertThat(replayedRefundId).isEqualTo(createdRefundId);
-            assertThat(replayed.getResponse().getHeader(
-                    "Idempotency-Replayed")).isEqualTo("true");
+            assertThat(replayed.getResponse().getHeader("Idempotency-Replayed")).isEqualTo("true");
             assertThat(lookupCount).hasValue(2);
             assertPersistedCounts(1, 1, 3, 2);
         } finally {
@@ -327,35 +253,21 @@ class RefundIntegrationTests {
     }
 
     @Test
-    void rejectsConcurrentRequestWhenSameKeyHasDifferentPayload()
-            throws Exception {
-        UUID firstPaymentId = createApprovedPayment(
-                "payment-key-concurrent-payload-conflict-a");
-        UUID secondPaymentId = createApprovedPayment(
-                "payment-key-concurrent-payload-conflict-b");
-        AtomicInteger lookupCount = synchronizeInitialPaymentLookups(
-                firstPaymentId,
-                secondPaymentId);
+    void rejectsConcurrentRequestWhenSameKeyHasDifferentPayload() throws Exception {
+        UUID firstPaymentId = createApprovedPayment("payment-key-concurrent-payload-conflict-a");
+        UUID secondPaymentId = createApprovedPayment("payment-key-concurrent-payload-conflict-b");
+        AtomicInteger lookupCount = synchronizeInitialPaymentLookups(firstPaymentId, secondPaymentId);
         String concurrentKey = "refund-key-concurrent-payload-conflict";
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Callable<MvcResult> firstRefund = () -> mockMvc.perform(refundRequest(
-                            firstPaymentId,
-                            MERCHANT_A,
-                            concurrentKey,
-                            "CUSTOMER_REQUEST"))
-                    .andReturn();
-            Callable<MvcResult> secondRefund = () -> mockMvc.perform(refundRequest(
-                            secondPaymentId,
-                            MERCHANT_A,
-                            concurrentKey,
-                            "DUPLICATE_CHARGE"))
-                    .andReturn();
+            Callable<MvcResult> firstRefund =
+                    () -> mockMvc.perform(refundRequest(firstPaymentId, MERCHANT_A, concurrentKey, "CUSTOMER_REQUEST"))
+                            .andReturn();
+            Callable<MvcResult> secondRefund =
+                    () -> mockMvc.perform(refundRequest(secondPaymentId, MERCHANT_A, concurrentKey, "DUPLICATE_CHARGE"))
+                            .andReturn();
 
-            List<MvcResult> results = concurrentResults(
-                    executor,
-                    firstRefund,
-                    secondRefund);
+            List<MvcResult> results = concurrentResults(executor, firstRefund, secondRefund);
 
             assertThat(results)
                     .extracting(result -> result.getResponse().getStatus())
@@ -363,25 +275,17 @@ class RefundIntegrationTests {
 
             MvcResult created = resultWithStatus(results, 201);
             MvcResult conflict = resultWithStatus(results, 409);
-            String createdReason = JsonPath.read(
-                    created.getResponse().getContentAsString(),
-                    "$.reason");
-            String refundedPaymentId = JsonPath.read(
-                    created.getResponse().getContentAsString(),
-                    "$.paymentId");
+            String createdReason = JsonPath.read(created.getResponse().getContentAsString(), "$.reason");
+            String refundedPaymentId = JsonPath.read(created.getResponse().getContentAsString(), "$.paymentId");
 
-            assertThat(conflict.getResponse().getHeader("Idempotency-Replayed"))
-                    .isNull();
+            assertThat(conflict.getResponse().getHeader("Idempotency-Replayed")).isNull();
             assertThat(lookupCount).hasValue(2);
             assertPersistedCounts(2, 1, 5, 3);
             assertThat(paymentRepository.findAll())
                     .extracting(PaymentEntity::getStatus)
-                    .containsExactlyInAnyOrder(
-                            PaymentStatus.APPROVED,
-                            PaymentStatus.REFUNDED);
+                    .containsExactlyInAnyOrder(PaymentStatus.APPROVED, PaymentStatus.REFUNDED);
             assertThat(refundRepository.findByPayment_IdAndPayment_MerchantId(
-                            UUID.fromString(refundedPaymentId),
-                            MERCHANT_A))
+                            UUID.fromString(refundedPaymentId), MERCHANT_A))
                     .isPresent()
                     .get()
                     .extracting(refund -> refund.getReason())
@@ -392,29 +296,19 @@ class RefundIntegrationTests {
     }
 
     @Test
-    void rejectsConcurrentRequestWithDifferentKeyAfterRealRollback()
-            throws Exception {
+    void rejectsConcurrentRequestWithDifferentKeyAfterRealRollback() throws Exception {
         UUID paymentId = createApprovedPayment("payment-key-concurrent-conflict");
         AtomicInteger lookupCount = synchronizeInitialPaymentLookups(paymentId);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Callable<MvcResult> firstRefund = () -> mockMvc.perform(refundRequest(
-                            paymentId,
-                            MERCHANT_A,
-                            "refund-key-concurrent-a",
-                            "CUSTOMER_REQUEST"))
+            Callable<MvcResult> firstRefund = () -> mockMvc.perform(
+                            refundRequest(paymentId, MERCHANT_A, "refund-key-concurrent-a", "CUSTOMER_REQUEST"))
                     .andReturn();
-            Callable<MvcResult> secondRefund = () -> mockMvc.perform(refundRequest(
-                            paymentId,
-                            MERCHANT_A,
-                            "refund-key-concurrent-b",
-                            "CUSTOMER_REQUEST"))
+            Callable<MvcResult> secondRefund = () -> mockMvc.perform(
+                            refundRequest(paymentId, MERCHANT_A, "refund-key-concurrent-b", "CUSTOMER_REQUEST"))
                     .andReturn();
 
-            List<MvcResult> results = concurrentResults(
-                    executor,
-                    firstRefund,
-                    secondRefund);
+            List<MvcResult> results = concurrentResults(executor, firstRefund, secondRefund);
 
             assertThat(results)
                     .extracting(result -> result.getResponse().getStatus())
@@ -443,17 +337,12 @@ class RefundIntegrationTests {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("APPROVED"))
                 .andReturn();
-        String paymentId = JsonPath.read(
-                result.getResponse().getContentAsString(),
-                "$.id");
+        String paymentId = JsonPath.read(result.getResponse().getContentAsString(), "$.id");
         return UUID.fromString(paymentId);
     }
 
     private MockHttpServletRequestBuilder refundRequest(
-            UUID paymentId,
-            String merchantId,
-            String idempotencyKey,
-            String reason) {
+            UUID paymentId, String merchantId, String idempotencyKey, String reason) {
         return post(PAYMENTS_ENDPOINT + "/{paymentId}/refunds", paymentId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.APPLICATION_JSON)
@@ -466,57 +355,42 @@ class RefundIntegrationTests {
         return PAYMENTS_ENDPOINT + "/" + paymentId + "/events";
     }
 
-    private PaymentEntity savePayment(
-            String merchantId,
-            PaymentStatus status) {
+    private PaymentEntity savePayment(String merchantId, PaymentStatus status) {
         return paymentRepository.saveAndFlush(new PaymentEntity(
-                UUID.randomUUID(),
-                merchantId,
-                "ORDER-DIRECT-SETUP",
-                10_000,
-                "BRL",
-                status,
-                BASE_TIME,
-                BASE_TIME));
+                UUID.randomUUID(), merchantId, "ORDER-DIRECT-SETUP", 10_000, "BRL", status, BASE_TIME, BASE_TIME));
     }
 
-    private AtomicInteger synchronizeInitialPaymentLookups(
-            UUID... expectedPaymentIds) {
+    private AtomicInteger synchronizeInitialPaymentLookups(UUID... expectedPaymentIds) {
         CyclicBarrier bothLookupsCompleted = new CyclicBarrier(2);
         AtomicInteger lookupCount = new AtomicInteger();
 
         doAnswer(invocation -> {
-            UUID requestedPaymentId = invocation.getArgument(0);
-            String requestedMerchantId = invocation.getArgument(1);
-            assertThat(List.of(expectedPaymentIds)).contains(requestedPaymentId);
-            Optional<PaymentEntity> result = findPayment(
-                    requestedPaymentId,
-                    requestedMerchantId);
-            int currentLookup = lookupCount.incrementAndGet();
-            if (currentLookup <= 2) {
-                assertThat(result).isPresent()
-                        .get()
-                        .extracting(PaymentEntity::getStatus)
-                        .isEqualTo(PaymentStatus.APPROVED);
-                bothLookupsCompleted.await(10, TimeUnit.SECONDS);
-            }
-            return result;
-        }).when(paymentRepository).findByIdAndMerchantId(
-                any(UUID.class),
-                eq(MERCHANT_A));
+                    UUID requestedPaymentId = invocation.getArgument(0);
+                    String requestedMerchantId = invocation.getArgument(1);
+                    assertThat(List.of(expectedPaymentIds)).contains(requestedPaymentId);
+                    Optional<PaymentEntity> result = findPayment(requestedPaymentId, requestedMerchantId);
+                    int currentLookup = lookupCount.incrementAndGet();
+                    if (currentLookup <= 2) {
+                        assertThat(result)
+                                .isPresent()
+                                .get()
+                                .extracting(PaymentEntity::getStatus)
+                                .isEqualTo(PaymentStatus.APPROVED);
+                        bothLookupsCompleted.await(10, TimeUnit.SECONDS);
+                    }
+                    return result;
+                })
+                .when(paymentRepository)
+                .findByIdAndMerchantId(any(UUID.class), eq(MERCHANT_A));
 
         return lookupCount;
     }
 
     private List<MvcResult> concurrentResults(
-            ExecutorService executor,
-            Callable<MvcResult> first,
-            Callable<MvcResult> second) throws Exception {
+            ExecutorService executor, Callable<MvcResult> first, Callable<MvcResult> second) throws Exception {
         Future<MvcResult> firstAttempt = executor.submit(first);
         Future<MvcResult> secondAttempt = executor.submit(second);
-        return List.of(
-                firstAttempt.get(20, TimeUnit.SECONDS),
-                secondAttempt.get(20, TimeUnit.SECONDS));
+        return List.of(firstAttempt.get(20, TimeUnit.SECONDS), secondAttempt.get(20, TimeUnit.SECONDS));
     }
 
     private MvcResult resultWithStatus(List<MvcResult> results, int status) {
@@ -526,10 +400,9 @@ class RefundIntegrationTests {
                 .orElseThrow();
     }
 
-    private Optional<PaymentEntity> findPayment(
-            UUID paymentId,
-            String merchantId) {
-        return entityManager.createQuery("""
+    private Optional<PaymentEntity> findPayment(UUID paymentId, String merchantId) {
+        return entityManager
+                .createQuery("""
                         select payment
                         from PaymentEntity payment
                         where payment.id = :paymentId
@@ -543,15 +416,10 @@ class RefundIntegrationTests {
                 .findFirst();
     }
 
-    private void assertPersistedCounts(
-            long payments,
-            long refunds,
-            long paymentEvents,
-            long idempotencyRecords) {
+    private void assertPersistedCounts(long payments, long refunds, long paymentEvents, long idempotencyRecords) {
         assertThat(paymentRepository.count()).isEqualTo(payments);
         assertThat(refundRepository.count()).isEqualTo(refunds);
         assertThat(paymentEventRepository.count()).isEqualTo(paymentEvents);
-        assertThat(idempotencyRecordRepository.count())
-                .isEqualTo(idempotencyRecords);
+        assertThat(idempotencyRecordRepository.count()).isEqualTo(idempotencyRecords);
     }
 }

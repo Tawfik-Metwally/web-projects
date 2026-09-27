@@ -1,4 +1,4 @@
-package io.github.tawfikmetwally.payments.config;
+package io.github.tawfikmetwally.payments.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,7 +10,6 @@ import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
-
 import tools.jackson.databind.ObjectMapper;
 
 @Configuration
@@ -20,47 +19,41 @@ public class SecurityConfiguration {
 
     @Bean
     SecurityFilterChain apiSecurityFilterChain(
-            HttpSecurity http,
-            JwtAuthenticationConverter jwtAuthenticationConverter,
-            ObjectMapper objectMapper)
+            HttpSecurity http, JwtAuthenticationConverter jwtAuthenticationConverter, ObjectMapper objectMapper)
             throws Exception {
         var authenticationEntryPoint = new ProblemAuthenticationEntryPoint(objectMapper);
         var accessDeniedHandler = new ProblemAccessDeniedHandler(objectMapper);
-        return http
-                .csrf(AbstractHttpConfigurer::disable)
+        return http.csrf(AbstractHttpConfigurer::disable)
                 .requestCache(AbstractHttpConfigurer::disable)
-                .sessionManagement(session -> session
-                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers(
-                                "/actuator/health",
-                                "/actuator/health/**")
-                            .permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/health/**")
+                        .permitAll()
                         .requestMatchers(
                                 "/v3/api-docs",
                                 "/v3/api-docs/**",
                                 "/v3/api-docs.yaml",
                                 "/swagger-ui.html",
                                 "/swagger-ui/**")
-                            .permitAll()
-                        .requestMatchers(
-                                "/actuator/metrics",
-                                "/actuator/metrics/**",
-                                "/actuator/prometheus")
-                            .hasAuthority("SCOPE_observability:read")
-                        .requestMatchers("/actuator/**").denyAll()
+                        .permitAll()
+                        .requestMatchers("/actuator/metrics", "/actuator/metrics/**", "/actuator/prometheus")
+                        .hasAuthority("SCOPE_observability:read")
+                        .requestMatchers("/actuator/**")
+                        .denyAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/payments")
-                            .hasAuthority("SCOPE_payments:create")
-                        .requestMatchers(HttpMethod.GET,
+                        .hasAuthority("SCOPE_payments:create")
+                        .requestMatchers(
+                                HttpMethod.GET,
                                 "/api/v1/payments",
                                 "/api/v1/payments/{paymentId}",
                                 "/api/v1/payments/{paymentId}/events")
-                            .hasAuthority("SCOPE_payments:read")
-                        .requestMatchers(HttpMethod.POST,
-                                "/api/v1/payments/{paymentId}/refunds")
-                            .hasAuthority("SCOPE_refunds:create")
-                        .requestMatchers("/api/**").denyAll()
-                        .anyRequest().permitAll())
+                        .hasAuthority("SCOPE_payments:read")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payments/{paymentId}/refunds")
+                        .hasAuthority("SCOPE_refunds:create")
+                        .requestMatchers("/api/**")
+                        .denyAll()
+                        .anyRequest()
+                        .permitAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler))
@@ -70,10 +63,11 @@ public class SecurityConfiguration {
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(token -> {
                             Object merchant = token.getClaims().get(MERCHANT_ID_CLAIM);
                             if (!(merchant instanceof String id)
-                                    || id.isBlank() || id.length() > 100
+                                    || id.isBlank()
+                                    || id.length() > 100
                                     || !id.equals(id.trim())) {
-                                throw new OAuth2AuthenticationException(new OAuth2Error(
-                                        "invalid_token", "Invalid merchant identity", null));
+                                throw new OAuth2AuthenticationException(
+                                        new OAuth2Error("invalid_token", "Invalid merchant identity", null));
                             }
                             return jwtAuthenticationConverter.convert(token);
                         })))

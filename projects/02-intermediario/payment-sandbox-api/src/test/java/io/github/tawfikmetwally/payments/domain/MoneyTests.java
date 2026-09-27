@@ -26,9 +26,7 @@ class MoneyTests {
         Money second = new Money(10_000, BRL);
         Money different = new Money(15_000, BRL);
 
-        assertThat(first)
-                .isEqualTo(second)
-                .isNotEqualTo(different);
+        assertThat(first).isEqualTo(second).isNotEqualTo(different);
     }
 
     @ParameterizedTest

@@ -1,10 +1,10 @@
 package io.github.tawfikmetwally.payments.exception;
 
+import io.github.tawfikmetwally.payments.observability.TraceContext;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.MessageSourceResolvable;
@@ -27,47 +27,43 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
-import io.github.tawfikmetwally.payments.observability.TraceContext;
-
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Object> handleUnexpectedFailure(
-            Exception exception, WebRequest request) {
+    public ResponseEntity<Object> handleUnexpectedFailure(Exception exception, WebRequest request) {
         logUnexpectedFailure(exception);
-        return businessProblem(exception, HttpStatus.INTERNAL_SERVER_ERROR,
-                "An internal server error occurred.", request);
+        return businessProblem(
+                exception, HttpStatus.INTERNAL_SERVER_ERROR, "An internal server error occurred.", request);
     }
 
     @ExceptionHandler(PaymentNotFoundException.class)
-    public ResponseEntity<Object> handlePaymentNotFound(
-            PaymentNotFoundException exception, WebRequest request) {
-        return businessProblem(exception, HttpStatus.NOT_FOUND,
-                "Payment was not found.", request);
+    public ResponseEntity<Object> handlePaymentNotFound(PaymentNotFoundException exception, WebRequest request) {
+        return businessProblem(exception, HttpStatus.NOT_FOUND, "Payment was not found.", request);
     }
 
     @ExceptionHandler(PaymentNotRefundableException.class)
     public ResponseEntity<Object> handlePaymentNotRefundable(
             PaymentNotRefundableException exception, WebRequest request) {
-        return businessProblem(exception, HttpStatus.CONFLICT,
-                "Payment is not eligible for a refund.", request);
+        return businessProblem(exception, HttpStatus.CONFLICT, "Payment is not eligible for a refund.", request);
     }
 
     @ExceptionHandler(IdempotencyConflictException.class)
     public ResponseEntity<Object> handleIdempotencyConflict(
             IdempotencyConflictException exception, WebRequest request) {
-        return businessProblem(exception, HttpStatus.CONFLICT,
-                "Idempotency key was already used with different request data.", request);
+        return businessProblem(
+                exception,
+                HttpStatus.CONFLICT,
+                "Idempotency key was already used with different request data.",
+                request);
     }
 
     @ExceptionHandler(UnsupportedPaymentMethodTokenException.class)
     public ResponseEntity<Object> handleUnsupportedPaymentMethodToken(
             UnsupportedPaymentMethodTokenException exception, WebRequest request) {
-        return businessProblem(exception, HttpStatus.BAD_REQUEST,
-                "Unsupported payment method token.", request);
+        return businessProblem(exception, HttpStatus.BAD_REQUEST, "Unsupported payment method token.", request);
     }
 
     private ResponseEntity<Object> businessProblem(
@@ -78,11 +74,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(
-            Exception exception, Object body, HttpHeaders headers,
-            HttpStatusCode status, WebRequest request) {
+            Exception exception, Object body, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         // Use controlled messages rather than exception messages or rejected values.
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status,
-                safeDetail(exception, status));
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, safeDetail(exception, status));
         if (!status.is5xxServerError()) {
             List<FieldViolation> errors = validationErrors(exception);
             if (!errors.isEmpty()) {
@@ -93,8 +87,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     private ResponseEntity<Object> finalizeProblem(
-            Exception exception, ProblemDetail problem, HttpHeaders headers,
-            HttpStatusCode status, WebRequest request) {
+            Exception exception,
+            ProblemDetail problem,
+            HttpHeaders headers,
+            HttpStatusCode status,
+            WebRequest request) {
         if (request instanceof ServletWebRequest servletRequest) {
             problem.setInstance(URI.create(servletRequest.getRequest().getRequestURI()));
             TraceContext.addTo(problem, servletRequest.getRequest());
@@ -105,14 +102,18 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private void logUnexpectedFailure(Exception exception) {
         StackTraceElement[] stackTrace = exception.getStackTrace();
         if (stackTrace.length == 0) {
-            LOGGER.error("Unhandled request failure failureType={}",
+            LOGGER.error(
+                    "Unhandled request failure failureType={}",
                     exception.getClass().getName());
             return;
         }
         StackTraceElement origin = stackTrace[0];
-        LOGGER.error("Unhandled request failure failureType={} origin={}.{}:{}",
-                exception.getClass().getName(), origin.getClassName(),
-                origin.getMethodName(), origin.getLineNumber());
+        LOGGER.error(
+                "Unhandled request failure failureType={} origin={}.{}:{}",
+                exception.getClass().getName(),
+                origin.getClassName(),
+                origin.getMethodName(),
+                origin.getLineNumber());
     }
 
     private String safeDetail(Exception exception, HttpStatusCode status) {
@@ -123,8 +124,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 || exception instanceof HandlerMethodValidationException) {
             return "Request validation failed.";
         }
-        if (exception instanceof ResponseStatusException responseStatus
-                && status.value() == 400) {
+        if (exception instanceof ResponseStatusException responseStatus && status.value() == 400) {
             // These are the explicit, non-sensitive currency errors in PaymentController.
             if ("Invalid currency".equals(responseStatus.getReason())) {
                 return "Invalid currency.";
@@ -135,8 +135,6 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         }
         return switch (status.value()) {
             case 400 -> "Request content or parameters are invalid.";
-            case 401 -> "Authentication is required.";
-            case 403 -> "Access is denied.";
             case 404 -> "Resource was not found.";
             case 405 -> "HTTP method is not supported for this resource.";
             case 406 -> "Requested response media type is not supported.";
@@ -165,9 +163,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 }
             }
         }
-        return errors.stream().distinct()
-                .sorted(Comparator.comparing(FieldViolation::field)
-                        .thenComparing(FieldViolation::message))
+        return errors.stream()
+                .distinct()
+                .sorted(Comparator.comparing(FieldViolation::field).thenComparing(FieldViolation::message))
                 .toList();
     }
 
@@ -189,16 +187,17 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private String validationMessage(MessageSourceResolvable error) {
         if (error.getCodes() != null) {
             for (String code : error.getCodes()) {
-                String message = switch (code) {
-                    case "NotNull" -> "Must not be null.";
-                    case "NotBlank" -> "Must not be blank.";
-                    case "Positive" -> "Must be greater than zero.";
-                    case "Size" -> "Length is outside the allowed range.";
-                    case "Pattern" -> "Format is invalid.";
-                    case "Min" -> "Must be at least the minimum allowed value.";
-                    case "Max" -> "Must not exceed the maximum allowed value.";
-                    default -> null;
-                };
+                String message =
+                        switch (code) {
+                            case "NotNull" -> "Must not be null.";
+                            case "NotBlank" -> "Must not be blank.";
+                            case "Positive" -> "Must be greater than zero.";
+                            case "Size" -> "Length is outside the allowed range.";
+                            case "Pattern" -> "Format is invalid.";
+                            case "Min" -> "Must be at least the minimum allowed value.";
+                            case "Max" -> "Must not exceed the maximum allowed value.";
+                            default -> null;
+                        };
                 if (message != null) {
                     return message;
                 }
@@ -207,6 +206,5 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return "Value is invalid.";
     }
 
-    public record FieldViolation(String field, String message) {
-    }
+    public record FieldViolation(String field, String message) {}
 }

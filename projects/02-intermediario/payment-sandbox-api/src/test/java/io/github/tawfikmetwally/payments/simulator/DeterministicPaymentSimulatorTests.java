@@ -3,18 +3,16 @@ package io.github.tawfikmetwally.payments.simulator;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.tawfikmetwally.payments.enums.PaymentDecision;
+import io.github.tawfikmetwally.payments.exception.UnsupportedPaymentMethodTokenException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import io.github.tawfikmetwally.payments.enums.PaymentDecision;
-import io.github.tawfikmetwally.payments.exception.UnsupportedPaymentMethodTokenException;
-
 class DeterministicPaymentSimulatorTests {
 
-    private final DeterministicPaymentSimulator simulator =
-            new DeterministicPaymentSimulator();
+    private final DeterministicPaymentSimulator simulator = new DeterministicPaymentSimulator();
 
     @Test
     void approvesApprovedToken() {
@@ -35,9 +33,7 @@ class DeterministicPaymentSimulatorTests {
         PaymentDecision first = simulator.decide("tok_approved");
         PaymentDecision second = simulator.decide("tok_approved");
 
-        assertThat(first)
-                .isEqualTo(PaymentDecision.APPROVE)
-                .isEqualTo(second);
+        assertThat(first).isEqualTo(PaymentDecision.APPROVE).isEqualTo(second);
     }
 
     @ParameterizedTest

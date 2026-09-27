@@ -2,15 +2,13 @@ package io.github.tawfikmetwally.payments.entity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.time.Instant;
-import java.util.Currency;
-import java.util.UUID;
-
-import org.junit.jupiter.api.Test;
-
 import io.github.tawfikmetwally.payments.domain.Money;
 import io.github.tawfikmetwally.payments.domain.Payment;
 import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import java.time.Instant;
+import java.util.Currency;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
 
 class PaymentEntityMappingTests {
 
@@ -21,12 +19,7 @@ class PaymentEntityMappingTests {
         UUID paymentId = UUID.randomUUID();
         Instant createdAt = Instant.parse("2026-09-03T12:00:00Z");
         Instant approvedAt = Instant.parse("2026-09-03T12:00:01Z");
-        Payment payment = Payment.create(
-                paymentId,
-                "merchant-a",
-                "ORDER-123",
-                new Money(10_000, BRL),
-                createdAt);
+        Payment payment = Payment.create(paymentId, "merchant-a", "ORDER-123", new Money(10_000, BRL), createdAt);
         payment.approve(approvedAt);
 
         PaymentEntity entity = PaymentEntity.fromDomain(payment);
@@ -47,14 +40,7 @@ class PaymentEntityMappingTests {
         Instant createdAt = Instant.parse("2026-09-03T12:00:00Z");
         Instant approvedAt = Instant.parse("2026-09-03T12:00:01Z");
         PaymentEntity entity = new PaymentEntity(
-                paymentId,
-                "merchant-a",
-                "ORDER-123",
-                10_000,
-                "BRL",
-                PaymentStatus.APPROVED,
-                createdAt,
-                approvedAt);
+                paymentId, "merchant-a", "ORDER-123", 10_000, "BRL", PaymentStatus.APPROVED, createdAt, approvedAt);
 
         Payment payment = entity.toDomain();
 

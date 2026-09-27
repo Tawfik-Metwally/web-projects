@@ -1,13 +1,5 @@
 package io.github.tawfikmetwally.payments.service;
 
-import java.time.Clock;
-import java.time.Instant;
-import java.util.Optional;
-import java.util.UUID;
-
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import io.github.tawfikmetwally.payments.domain.Payment;
 import io.github.tawfikmetwally.payments.domain.Refund;
 import io.github.tawfikmetwally.payments.entity.IdempotencyRecordEntity;
@@ -21,25 +13,31 @@ import io.github.tawfikmetwally.payments.exception.IdempotencyConflictException;
 import io.github.tawfikmetwally.payments.exception.InvalidPaymentStateTransitionException;
 import io.github.tawfikmetwally.payments.exception.PaymentNotFoundException;
 import io.github.tawfikmetwally.payments.exception.PaymentNotRefundableException;
-import io.github.tawfikmetwally.payments.repository.IdempotencyRecordJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
-import io.github.tawfikmetwally.payments.repository.RefundJpaRepository;
+import io.github.tawfikmetwally.payments.repository.IdempotencyRecordRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentEventRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentRepository;
+import io.github.tawfikmetwally.payments.repository.RefundRepository;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class CreateRefundTransaction {
 
-    private final PaymentJpaRepository paymentRepository;
-    private final RefundJpaRepository refundRepository;
-    private final PaymentEventJpaRepository paymentEventRepository;
-    private final IdempotencyRecordJpaRepository idempotencyRecordRepository;
+    private final PaymentRepository paymentRepository;
+    private final RefundRepository refundRepository;
+    private final PaymentEventRepository paymentEventRepository;
+    private final IdempotencyRecordRepository idempotencyRecordRepository;
     private final Clock clock;
 
     public CreateRefundTransaction(
-            PaymentJpaRepository paymentRepository,
-            RefundJpaRepository refundRepository,
-            PaymentEventJpaRepository paymentEventRepository,
-            IdempotencyRecordJpaRepository idempotencyRecordRepository,
+            PaymentRepository paymentRepository,
+            RefundRepository refundRepository,
+            PaymentEventRepository paymentEventRepository,
+            IdempotencyRecordRepository idempotencyRecordRepository,
             Clock clock) {
         this.paymentRepository = paymentRepository;
         this.refundRepository = refundRepository;
@@ -63,21 +61,14 @@ public class CreateRefundTransaction {
         Instant occurredAt = clock.instant();
         Refund refund;
         try {
-            refund = payment.refund(
-                    UUID.randomUUID(),
-                    command.reason(),
-                    occurredAt);
+            refund = payment.refund(UUID.randomUUID(), command.reason(), occurredAt);
         } catch (InvalidPaymentStateTransitionException exception) {
             throw new PaymentNotRefundableException();
         }
 
-        PaymentEntity updatedPayment = paymentRepository.save(
-                PaymentEntity.fromDomain(payment));
+        PaymentEntity updatedPayment = paymentRepository.save(PaymentEntity.fromDomain(payment));
         refundRepository.save(RefundEntity.fromDomain(refund, updatedPayment));
-        paymentEventRepository.save(refundedEvent(
-                updatedPayment,
-                previousStatus,
-                occurredAt));
+        paymentEventRepository.save(refundedEvent(updatedPayment, previousStatus, occurredAt));
         idempotencyRecordRepository.saveAndFlush(new IdempotencyRecordEntity(
                 UUID.randomUUID(),
                 command.merchantId(),
@@ -91,71 +82,48 @@ public class CreateRefundTransaction {
     }
 
     @Transactional(readOnly = true)
-    public CreateRefundResult replay(
-            CreateRefundCommand command,
-            String requestHash) {
+    public CreateRefundResult replay(CreateRefundCommand command, String requestHash) {
         IdempotencyRecordEntity record = findRecord(command)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Idempotency winner was not found after unique constraint conflict"));
+                .orElseThrow(() ->
+                        new IllegalStateException("Idempotency winner was not found after unique constraint conflict"));
         return toReplayResult(record, command, requestHash);
     }
 
     @Transactional(readOnly = true)
-    public CreateRefundResult resolveRefundConflict(
-            CreateRefundCommand command,
-            String requestHash) {
-        Optional<IdempotencyRecordEntity> currentKeyWinner =
-                findRecord(command);
+    public CreateRefundResult resolveRefundConflict(CreateRefundCommand command, String requestHash) {
+        Optional<IdempotencyRecordEntity> currentKeyWinner = findRecord(command);
         if (currentKeyWinner.isPresent()) {
-            return toReplayResult(
-                    currentKeyWinner.get(),
-                    command,
-                    requestHash);
+            return toReplayResult(currentKeyWinner.get(), command, requestHash);
         }
 
         if (refundRepository
-                .findByPayment_IdAndPayment_MerchantId(
-                        command.paymentId(),
-                        command.merchantId())
+                .findByPayment_IdAndPayment_MerchantId(command.paymentId(), command.merchantId())
                 .isPresent()) {
             throw new PaymentNotRefundableException();
         }
 
-        throw new IllegalStateException(
-                "Refund winner was not found after unique constraint conflict");
+        throw new IllegalStateException("Refund winner was not found after unique constraint conflict");
     }
 
-    private Optional<IdempotencyRecordEntity> findRecord(
-            CreateRefundCommand command) {
-        return idempotencyRecordRepository
-                .findByMerchantIdAndOperationTypeAndIdempotencyKey(
-                        command.merchantId(),
-                        IdempotencyOperation.CREATE_REFUND,
-                        command.idempotencyKey());
+    private Optional<IdempotencyRecordEntity> findRecord(CreateRefundCommand command) {
+        return idempotencyRecordRepository.findByMerchantIdAndOperationTypeAndIdempotencyKey(
+                command.merchantId(), IdempotencyOperation.CREATE_REFUND, command.idempotencyKey());
     }
 
     private CreateRefundResult toReplayResult(
-            IdempotencyRecordEntity record,
-            CreateRefundCommand command,
-            String requestHash) {
+            IdempotencyRecordEntity record, CreateRefundCommand command, String requestHash) {
         if (!record.getRequestHash().equals(requestHash)) {
             throw new IdempotencyConflictException();
         }
 
         Refund refund = refundRepository
-                .findByPayment_IdAndPayment_MerchantId(
-                        record.getPayment().getId(),
-                        command.merchantId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "Refund was not found for an existing idempotency record"))
+                .findByPayment_IdAndPayment_MerchantId(record.getPayment().getId(), command.merchantId())
+                .orElseThrow(() -> new IllegalStateException("Refund was not found for an existing idempotency record"))
                 .toDomain();
         return new CreateRefundResult(refund, true);
     }
 
-    private PaymentEventEntity refundedEvent(
-            PaymentEntity payment,
-            PaymentStatus previousStatus,
-            Instant occurredAt) {
+    private PaymentEventEntity refundedEvent(PaymentEntity payment, PaymentStatus previousStatus, Instant occurredAt) {
         return new PaymentEventEntity(
                 UUID.randomUUID(),
                 payment,

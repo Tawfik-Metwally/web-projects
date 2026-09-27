@@ -1,4 +1,4 @@
-package io.github.tawfikmetwally.payments;
+package io.github.tawfikmetwally.payments.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -8,10 +8,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.tawfikmetwally.payments.TestcontainersConfiguration;
+import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import io.github.tawfikmetwally.payments.repository.IdempotencyRecordRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentEventRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentRepository;
+import io.github.tawfikmetwally.payments.repository.RefundRepository;
+import io.github.tawfikmetwally.payments.support.JwtSigningTestSupport;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
-
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,12 +36,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import io.github.tawfikmetwally.payments.enums.PaymentStatus;
-import io.github.tawfikmetwally.payments.repository.IdempotencyRecordJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
-import io.github.tawfikmetwally.payments.repository.RefundJpaRepository;
-
 @Import(TestcontainersConfiguration.class)
 @AutoConfigureMockMvc
 @SpringBootTest
@@ -46,11 +46,20 @@ class JwtMerchantIsolationIntegrationTests {
     private static final String MERCHANT_B = "merchant-b-client";
     private static final JwtSigningTestSupport SIGNING = new JwtSigningTestSupport();
 
-    @Autowired private MockMvc mockMvc;
-    @Autowired private PaymentJpaRepository payments;
-    @Autowired private RefundJpaRepository refunds;
-    @Autowired private PaymentEventJpaRepository events;
-    @Autowired private IdempotencyRecordJpaRepository idempotency;
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private PaymentRepository payments;
+
+    @Autowired
+    private RefundRepository refunds;
+
+    @Autowired
+    private PaymentEventRepository events;
+
+    @Autowired
+    private IdempotencyRecordRepository idempotency;
 
     @DynamicPropertySource
     static void securityProperties(DynamicPropertyRegistry registry) {
@@ -82,17 +91,14 @@ class JwtMerchantIsolationIntegrationTests {
         UUID paymentId = paymentId(result);
         assertThat(payments.findByIdAndMerchantId(paymentId, MERCHANT_A)).isPresent();
         assertThat(payments.findByIdAndMerchantId(paymentId, MERCHANT_B)).isEmpty();
-        assertThat(payments.findByIdAndMerchantId(paymentId, "internal-service-account")).isEmpty();
+        assertThat(payments.findByIdAndMerchantId(paymentId, "internal-service-account"))
+                .isEmpty();
         assertCounts(1, 0, 2, 1);
     }
 
     @ParameterizedTest
-    @CsvSource({
-            "merchant-a-client, merchant-b-client",
-            "merchant-b-client, merchant-a-client"
-    })
-    void allowsOwnerAndHidesPaymentAndHistoryFromOtherMerchant(
-            String owner, String outsider) throws Exception {
+    @CsvSource({"merchant-a-client, merchant-b-client", "merchant-b-client, merchant-a-client"})
+    void allowsOwnerAndHidesPaymentAndHistoryFromOtherMerchant(String owner, String outsider) throws Exception {
         UUID paymentId = createPayment(owner, "create-owner");
 
         mockMvc.perform(bearer(get(ENDPOINT + "/" + paymentId), owner))
@@ -128,13 +134,12 @@ class JwtMerchantIsolationIntegrationTests {
         UUID onlyB = createPayment(MERCHANT_B, "b-1");
         UUID secondA = createPayment(MERCHANT_A, "a-2");
 
-        mockMvc.perform(bearer(get(ENDPOINT), MERCHANT_A)
-                        .queryParam("merchantId", MERCHANT_B))
+        mockMvc.perform(bearer(get(ENDPOINT), MERCHANT_A).queryParam("merchantId", MERCHANT_B))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(2))
-                .andExpect(jsonPath("$.content[*].id",
-                        org.hamcrest.Matchers.containsInAnyOrder(
-                                firstA.toString(), secondA.toString())));
+                .andExpect(jsonPath(
+                        "$.content[*].id",
+                        org.hamcrest.Matchers.containsInAnyOrder(firstA.toString(), secondA.toString())));
         mockMvc.perform(bearer(get(ENDPOINT), MERCHANT_B)
                         .queryParam("merchantId", MERCHANT_A)
                         .queryParam("status", "APPROVED")
@@ -146,28 +151,20 @@ class JwtMerchantIsolationIntegrationTests {
     }
 
     @ParameterizedTest
-    @CsvSource({
-            "merchant-a-client, merchant-b-client",
-            "merchant-b-client, merchant-a-client"
-    })
-    void deniesCrossMerchantRefundWithoutChangesAndAllowsOwner(
-            String owner, String outsider) throws Exception {
+    @CsvSource({"merchant-a-client, merchant-b-client", "merchant-b-client, merchant-a-client"})
+    void deniesCrossMerchantRefundWithoutChangesAndAllowsOwner(String owner, String outsider) throws Exception {
         UUID paymentId = createPayment(owner, "payment-for-refund");
 
-        mockMvc.perform(refundRequest(outsider, paymentId, "refund-shared")
-                        .header("X-Demo-Merchant-Id", owner))
+        mockMvc.perform(refundRequest(outsider, paymentId, "refund-shared").header("X-Demo-Merchant-Id", owner))
                 .andExpect(status().isNotFound());
-        assertThat(payments.findById(paymentId).orElseThrow().getStatus())
-                .isEqualTo(PaymentStatus.APPROVED);
+        assertThat(payments.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.APPROVED);
         assertCounts(1, 0, 2, 1);
 
-        mockMvc.perform(refundRequest(owner, paymentId, "refund-shared"))
-                .andExpect(status().isCreated());
+        mockMvc.perform(refundRequest(owner, paymentId, "refund-shared")).andExpect(status().isCreated());
         assertCounts(1, 1, 3, 2);
 
         // Knowing the owner's successful key must not reveal its replay.
-        mockMvc.perform(refundRequest(outsider, paymentId, "refund-shared"))
-                .andExpect(status().isNotFound());
+        mockMvc.perform(refundRequest(outsider, paymentId, "refund-shared")).andExpect(status().isNotFound());
         assertCounts(1, 1, 3, 2);
     }
 
@@ -206,15 +203,13 @@ class JwtMerchantIsolationIntegrationTests {
     }
 
     static Stream<Object> invalidIdentities() {
-        return Stream.of(null, "", " ", " merchant-a-client",
-                "merchant-a-client ", "x".repeat(101), 42);
+        return Stream.of(null, "", " ", " merchant-a-client", "merchant-a-client ", "x".repeat(101), 42);
     }
 
     @Test
     void rejectsForeignSignatureBeforePersistence() throws Exception {
         mockMvc.perform(post(ENDPOINT)
-                        .header(HttpHeaders.AUTHORIZATION,
-                                "Bearer " + SIGNING.tokenWithForeignSignature(MERCHANT_A))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + SIGNING.tokenWithForeignSignature(MERCHANT_A))
                         .header("Idempotency-Key", "foreign-signature")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(paymentBody()))
@@ -224,7 +219,8 @@ class JwtMerchantIsolationIntegrationTests {
 
     private UUID createPayment(String merchant, String key) throws Exception {
         return paymentId(mockMvc.perform(createRequest(merchant, key))
-                .andExpect(status().isCreated()).andReturn());
+                .andExpect(status().isCreated())
+                .andReturn());
     }
 
     private UUID paymentId(MvcResult result) {
@@ -233,16 +229,14 @@ class JwtMerchantIsolationIntegrationTests {
         return UUID.fromString(location.substring(location.lastIndexOf('/') + 1));
     }
 
-    private MockHttpServletRequestBuilder createRequest(String merchant, String key)
-            throws Exception {
+    private MockHttpServletRequestBuilder createRequest(String merchant, String key) throws Exception {
         return bearer(post(ENDPOINT), merchant)
                 .header("Idempotency-Key", key)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(paymentBody());
     }
 
-    private MockHttpServletRequestBuilder refundRequest(String merchant, UUID paymentId, String key)
-            throws Exception {
+    private MockHttpServletRequestBuilder refundRequest(String merchant, UUID paymentId, String key) throws Exception {
         return bearer(post(ENDPOINT + "/" + paymentId + "/refunds"), merchant)
                 .header("Idempotency-Key", key)
                 .contentType(MediaType.APPLICATION_JSON)

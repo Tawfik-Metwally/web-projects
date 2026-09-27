@@ -6,10 +6,11 @@ import io.swagger.v3.oas.annotations.media.Schema;
 public record ApiProblemResponse(
         @Schema(example = "400") int status,
         @Schema(example = "Bad Request") String title,
-        @Schema(example = "Request content or parameters are invalid.") String detail,
+
+        @Schema(example = "Request content or parameters are invalid.")
+        String detail,
+
         @Schema(example = "/api/v1/payments") String instance,
-        @Schema(
-                example = "6dc06e1e-48c9-4e79-a572-e371346fa33f",
-                format = "uuid")
-        String traceId) {
-}
+
+        @Schema(example = "6dc06e1e-48c9-4e79-a572-e371346fa33f", format = "uuid")
+        String traceId) {}

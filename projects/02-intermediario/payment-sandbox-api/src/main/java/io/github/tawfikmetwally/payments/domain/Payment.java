@@ -1,11 +1,10 @@
 package io.github.tawfikmetwally.payments.domain;
 
+import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import io.github.tawfikmetwally.payments.exception.InvalidPaymentStateTransitionException;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
-
-import io.github.tawfikmetwally.payments.enums.PaymentStatus;
-import io.github.tawfikmetwally.payments.exception.InvalidPaymentStateTransitionException;
 
 public final class Payment {
 
@@ -29,14 +28,8 @@ public final class Payment {
             Instant createdAt,
             Instant updatedAt) {
         this.id = Objects.requireNonNull(id, "id must not be null");
-        this.merchantId = requireText(
-                merchantId,
-                "merchantId",
-                MAX_MERCHANT_ID_LENGTH);
-        this.merchantReference = requireText(
-                merchantReference,
-                "merchantReference",
-                MAX_MERCHANT_REFERENCE_LENGTH);
+        this.merchantId = requireText(merchantId, "merchantId", MAX_MERCHANT_ID_LENGTH);
+        this.merchantReference = requireText(merchantReference, "merchantReference", MAX_MERCHANT_REFERENCE_LENGTH);
         this.money = Objects.requireNonNull(money, "money must not be null");
         this.status = Objects.requireNonNull(status, "status must not be null");
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt must not be null");
@@ -47,20 +40,8 @@ public final class Payment {
         }
     }
 
-    public static Payment create(
-            UUID id,
-            String merchantId,
-            String merchantReference,
-            Money money,
-            Instant createdAt) {
-        return new Payment(
-                id,
-                merchantId,
-                merchantReference,
-                money,
-                PaymentStatus.PENDING,
-                createdAt,
-                createdAt);
+    public static Payment create(UUID id, String merchantId, String merchantReference, Money money, Instant createdAt) {
+        return new Payment(id, merchantId, merchantReference, money, PaymentStatus.PENDING, createdAt, createdAt);
     }
 
     public static Payment restore(
@@ -71,14 +52,7 @@ public final class Payment {
             PaymentStatus status,
             Instant createdAt,
             Instant updatedAt) {
-        return new Payment(
-                id,
-                merchantId,
-                merchantReference,
-                money,
-                status,
-                createdAt,
-                updatedAt);
+        return new Payment(id, merchantId, merchantReference, money, status, createdAt, updatedAt);
     }
 
     public void approve(Instant occurredAt) {
@@ -95,10 +69,7 @@ public final class Payment {
         return refund;
     }
 
-    private void transitionTo(
-            PaymentStatus expectedCurrentStatus,
-            PaymentStatus targetStatus,
-            Instant occurredAt) {
+    private void transitionTo(PaymentStatus expectedCurrentStatus, PaymentStatus targetStatus, Instant occurredAt) {
         Objects.requireNonNull(occurredAt, "occurredAt must not be null");
         if (occurredAt.isBefore(updatedAt)) {
             throw new IllegalArgumentException("occurredAt must not be before updatedAt");
@@ -116,8 +87,7 @@ public final class Payment {
             throw new IllegalArgumentException(fieldName + " must not be blank");
         }
         if (value.length() > maxLength) {
-            throw new IllegalArgumentException(
-                    fieldName + " must not exceed " + maxLength + " characters");
+            throw new IllegalArgumentException(fieldName + " must not exceed " + maxLength + " characters");
         }
         return value;
     }

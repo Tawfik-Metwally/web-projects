@@ -1,4 +1,4 @@
-package io.github.tawfikmetwally.payments;
+package io.github.tawfikmetwally.payments.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -9,11 +9,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.nimbusds.jwt.SignedJWT;
+import io.github.tawfikmetwally.payments.TestcontainersConfiguration;
+import io.github.tawfikmetwally.payments.enums.PaymentStatus;
+import io.github.tawfikmetwally.payments.repository.IdempotencyRecordRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentEventRepository;
+import io.github.tawfikmetwally.payments.repository.PaymentRepository;
+import io.github.tawfikmetwally.payments.repository.RefundRepository;
+import io.github.tawfikmetwally.payments.support.JwtSigningTestSupport;
 import java.util.Arrays;
 import java.util.UUID;
 import java.util.stream.Stream;
-
-import com.nimbusds.jwt.SignedJWT;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,12 +39,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import io.github.tawfikmetwally.payments.enums.PaymentStatus;
-import io.github.tawfikmetwally.payments.repository.IdempotencyRecordJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentEventJpaRepository;
-import io.github.tawfikmetwally.payments.repository.PaymentJpaRepository;
-import io.github.tawfikmetwally.payments.repository.RefundJpaRepository;
-
 @Import(TestcontainersConfiguration.class)
 @AutoConfigureMockMvc
 @SpringBootTest
@@ -51,14 +51,18 @@ class JwtAuthenticationIntegrationTests {
 
     @Autowired
     private MockMvc mockMvc;
+
     @Autowired
-    private PaymentJpaRepository payments;
+    private PaymentRepository payments;
+
     @Autowired
-    private RefundJpaRepository refunds;
+    private RefundRepository refunds;
+
     @Autowired
-    private PaymentEventJpaRepository events;
+    private PaymentEventRepository events;
+
     @Autowired
-    private IdempotencyRecordJpaRepository idempotency;
+    private IdempotencyRecordRepository idempotency;
 
     private UUID paymentId;
 
@@ -89,31 +93,29 @@ class JwtAuthenticationIntegrationTests {
 
     @ParameterizedTest(name = "{0}, invalid token: {1}")
     @MethodSource("invalidTokenCases")
-    void rejectsInvalidTokenOnEveryEndpointWithoutChangingDatabase(Route route, InvalidToken reason)
-            throws Exception {
-        String token = switch (reason) {
-            case EXPIRED -> SIGNING.token(MERCHANT_A, JwtSigningTestSupport.ISSUER,
-                    JwtSigningTestSupport.AUDIENCE, -300);
-            case WRONG_ISSUER -> SIGNING.token(MERCHANT_A, "https://other.example.test",
-                    JwtSigningTestSupport.AUDIENCE, 300);
-            case WRONG_AUDIENCE -> SIGNING.token(MERCHANT_A, JwtSigningTestSupport.ISSUER,
-                    "another-api", 300);
-        };
+    void rejectsInvalidTokenOnEveryEndpointWithoutChangingDatabase(Route route, InvalidToken reason) throws Exception {
+        String token =
+                switch (reason) {
+                    case EXPIRED ->
+                        SIGNING.token(MERCHANT_A, JwtSigningTestSupport.ISSUER, JwtSigningTestSupport.AUDIENCE, -300);
+                    case WRONG_ISSUER ->
+                        SIGNING.token(MERCHANT_A, "https://other.example.test", JwtSigningTestSupport.AUDIENCE, 300);
+                    case WRONG_AUDIENCE -> SIGNING.token(MERCHANT_A, JwtSigningTestSupport.ISSUER, "another-api", 300);
+                };
         // A new key makes accidental acceptance observable as a new write, not a replay.
-        assertRejected(bearer(operation(route)
-                .headers(headers -> headers.set("Idempotency-Key", "invalid-attempt")), token));
+        assertRejected(
+                bearer(operation(route).headers(headers -> headers.set("Idempotency-Key", "invalid-attempt")), token));
     }
 
     static Stream<Arguments> invalidTokenCases() {
-        return Arrays.stream(Route.values()).flatMap(route ->
-                Arrays.stream(InvalidToken.values()).map(reason -> Arguments.of(route, reason)));
+        return Arrays.stream(Route.values())
+                .flatMap(route -> Arrays.stream(InvalidToken.values()).map(reason -> Arguments.of(route, reason)));
     }
 
     @Test
     void rejectsMerchantIdentityChangedAfterSigning() throws Exception {
         String original = SIGNING.tokenWithScopes(MERCHANT_B, "payments:read");
-        mockMvc.perform(bearer(operation(Route.GET), original))
-                .andExpect(status().isNotFound());
+        mockMvc.perform(bearer(operation(Route.GET), original)).andExpect(status().isNotFound());
 
         String altered = SIGNING.tamperClaim(original, "azp", MERCHANT_A);
         assertTamperedClaim(original, altered, "azp", MERCHANT_A);
@@ -133,8 +135,9 @@ class JwtAuthenticationIntegrationTests {
 
         String altered = SIGNING.tamperClaim(original, "scope", "payments:read payments:create");
         assertTamperedClaim(original, altered, "scope", "payments:read payments:create");
-        assertRejected(bearer(operation(Route.CREATE)
-                .headers(headers -> headers.set("Idempotency-Key", "tampered-attempt")), altered));
+        assertRejected(bearer(
+                operation(Route.CREATE).headers(headers -> headers.set("Idempotency-Key", "tampered-attempt")),
+                altered));
     }
 
     @Test
@@ -144,8 +147,8 @@ class JwtAuthenticationIntegrationTests {
         mockMvc.perform(bearer(operation(Route.GET).session(session), SIGNING.token(MERCHANT_A)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(paymentId.toString()));
-        assertThat(session.getAttribute(
-                HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY)).isNull();
+        assertThat(session.getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY))
+                .isNull();
 
         mockMvc.perform(operation(Route.GET).session(session))
                 .andExpect(status().isUnauthorized())
@@ -164,8 +167,7 @@ class JwtAuthenticationIntegrationTests {
         assertUnchanged();
     }
 
-    private void assertTamperedClaim(String original, String altered, String claim, String expected)
-            throws Exception {
+    private void assertTamperedClaim(String original, String altered, String claim, String expected) throws Exception {
         SignedJWT parsed = SignedJWT.parse(altered);
         assertThat(parsed.getJWTClaimsSet().getStringClaim(claim)).isEqualTo(expected);
         assertThat(parsed.getSignature()).isEqualTo(SignedJWT.parse(original).getSignature());
@@ -180,17 +182,17 @@ class JwtAuthenticationIntegrationTests {
                 .andExpect(jsonPath("$.title").value("Unauthorized"))
                 .andExpect(jsonPath("$.detail").value("A valid access token is required."))
                 .andExpect(jsonPath("$.instance").exists())
-                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE,
-                        containsString("invalid_token")));
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, containsString("invalid_token")));
         assertUnchanged();
     }
 
     private MockHttpServletRequestBuilder operation(Route route) {
         return switch (route) {
-            case CREATE -> post(BASE)
-                    .header("Idempotency-Key", "setup")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("""
+            case CREATE ->
+                post(BASE)
+                        .header("Idempotency-Key", "setup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
                             {
                               "amount": 10000,
                               "currency": "BRL",
@@ -201,10 +203,11 @@ class JwtAuthenticationIntegrationTests {
             case GET -> get(BASE + "/" + paymentId);
             case LIST -> get(BASE);
             case HISTORY -> get(BASE + "/" + paymentId + "/events");
-            case REFUND -> post(BASE + "/" + paymentId + "/refunds")
-                    .header("Idempotency-Key", "refund")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"reason\":\"CUSTOMER_REQUEST\"}");
+            case REFUND ->
+                post(BASE + "/" + paymentId + "/refunds")
+                        .header("Idempotency-Key", "refund")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"CUSTOMER_REQUEST\"}");
         };
     }
 
@@ -222,6 +225,17 @@ class JwtAuthenticationIntegrationTests {
         assertThat(payment.getMerchantId()).isEqualTo(MERCHANT_A);
     }
 
-    enum Route { CREATE, GET, LIST, HISTORY, REFUND }
-    enum InvalidToken { EXPIRED, WRONG_ISSUER, WRONG_AUDIENCE }
+    enum Route {
+        CREATE,
+        GET,
+        LIST,
+        HISTORY,
+        REFUND
+    }
+
+    enum InvalidToken {
+        EXPIRED,
+        WRONG_ISSUER,
+        WRONG_AUDIENCE
+    }
 }

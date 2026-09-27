@@ -18,7 +18,7 @@ for local inspection; it does not authenticate through the API.
 - [Run the payment and security scenario](#run-the-payment-and-security-scenario)
 - [Trace correlation and safe logs](#trace-correlation-and-safe-logs)
 - [Inspect persistence with DBeaver](#inspect-persistence-with-dbeaver)
-- [Run automated tests](#run-automated-tests)
+- [Run automated verification](#run-automated-verification)
 - [Troubleshooting](#troubleshooting)
 - [Stop without deleting data](#stop-without-deleting-data)
 
@@ -465,23 +465,26 @@ These are per-payment counts, not totals for the whole database. Previous
 `merchant-postman` records belong to a different identity and are not migrated
 to the Keycloak clients.
 
-## Run automated tests
+## Run automated verification
 
 In **Dev Container Bash**, without enabling the demo profile:
 
 ```bash
-./mvnw clean test
+./mvnw clean verify
 ```
 
-Tests use disposable PostgreSQL containers, not `payments_demo`. Check
-`BUILD SUCCESS` and the counts of failures, errors, and skipped tests.
-Reports are under `target/surefire-reports/`.
+Tests use disposable PostgreSQL containers, not `payments_demo`. The `verify`
+phase also checks Java formatting with Spotless, runs the focused PMD ruleset,
+and generates the JaCoCo coverage report. Check `BUILD SUCCESS` and the counts
+of failures, errors, and skipped tests. Test reports are under
+`target/surefire-reports/`, coverage is under `target/site/jacoco/`, and the PMD
+report is `target/reports/pmd.html`.
 
-The last confirmed suite before the trace-correlation change had 274 test
-executions. Signed-token integration tests use a temporary local signing
-authority, not a live Keycloak server. They complement the manual real-Keycloak
-workflow above. Use the current Maven summary as the source of truth after
-running tests for this change.
+The latest confirmed verification on 2026-09-27 had 288 test executions with no
+failures, errors, or skipped tests; Spotless kept 96 Java files clean, PMD found
+no violations, and JaCoCo analyzed 56 classes. Signed-token integration tests
+use a temporary local signing authority, not a live Keycloak server. They
+complement the manual real-Keycloak workflow above.
 
 ## Troubleshooting
 
@@ -518,10 +521,11 @@ normal stop/restart step.
 ## Verification record
 
 The author reported successful completion of the real-Keycloak/Postman/DBeaver
-checkpoint on 2026-09-16 and separately confirmed Postman's OAuth 2.0
-Client Credentials helper. Automated verification on 2026-09-15 passed 258 tests
-with zero failures, errors, or skipped tests. The documented changed-payload
-409 case is also covered by automated idempotency tests and earlier manual checks.
+checkpoint on 2026-09-16 and separately confirmed Postman's OAuth 2.0 Client
+Credentials helper. Automated verification on 2026-09-27 passed 288 tests with
+zero failures, errors, or skipped tests and completed Spotless, PMD, and JaCoCo.
+The documented changed-payload 409 case is also covered by automated
+idempotency tests and earlier manual checks.
 
 This is local development verification, not a production security audit.
 
