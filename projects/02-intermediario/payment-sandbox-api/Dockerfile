@@ -1,4 +1,4 @@
-FROM eclipse-temurin:25.0.4_7-jdk-noble AS build
+FROM eclipse-temurin:25.0.4_7-jdk-noble@sha256:2feab631bffce6236d8bb5261a4abe19a8d6f85bad1c01166f74686c983d011f AS build
 
 WORKDIR /workspace
 
@@ -9,7 +9,7 @@ RUN chmod +x mvnw && ./mvnw -B -ntp dependency:go-offline
 COPY src/ src/
 RUN ./mvnw -B -ntp package -DskipTests
 
-FROM eclipse-temurin:25.0.4_7-jre-noble AS runtime
+FROM eclipse-temurin:25.0.4_7-jre-noble@sha256:b573af9e331196fbc42e246da4df24df9b6c556c73e7efddfde0511f1c9508c5 AS runtime
 
 RUN groupadd --system --gid 10001 spring \
     && useradd --system --uid 10001 --gid spring spring

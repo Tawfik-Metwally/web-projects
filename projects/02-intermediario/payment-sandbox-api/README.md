@@ -8,11 +8,11 @@ A containerized REST API for simulating payment creation, queries, idempotency, 
 
 The project is under active development. Payment creation, merchant-scoped queries, paginated listing, full refunds, and chronological event history are implemented. Creation and refund operations persist their state, events, and idempotency records within transactional boundaries.
 
-Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: handled MVC errors and security rejections use Problem Details, requests have trace correlation, Actuator exposes controlled health and metrics, and GitHub Actions runs the automated verification. Dependency and image auditing and delivery hardening remain planned.
+Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: handled MVC errors and security rejections use Problem Details, requests have trace correlation, Actuator exposes controlled health and metrics, and GitHub Actions runs the automated verification. A dependency and image audit baseline is documented below; delivery hardening remains planned.
 
 ## Current verification
 
-The latest verification was run by the author in the Dev Container on 2026-09-27 with `./mvnw clean verify`: 288 tests passed with no failures, errors, or skipped tests. Spotless confirmed all 96 Java files are formatted, PMD 7.28.0 reported no violations from the focused ruleset, and JaCoCo generated coverage data for 56 classes.
+The latest verification was run by the author in the Dev Container on 2026-09-28 with `./mvnw clean verify`: 288 tests passed with no failures, errors, or skipped tests. Spotless confirmed all 96 Java files are formatted, PMD 7.28.0 reported no violations from the focused ruleset, and JaCoCo generated coverage data for 56 classes. The same checkpoint confirmed Tomcat 11.0.26 in the dependency tree and repeated the container image audit after rebuilding the application image.
 
 - domain, simulator, request-validation, mapping, hashing, service, and transaction tests;
 - Spring MVC controller tests with mocked service dependencies;
@@ -64,7 +64,7 @@ Tests live in `src/test/java` and mirror the package of the component they test.
 - Java 25 and Spring Boot 4.1.1
 - Spring Web MVC, Spring Security, and Spring Data JPA
 - PostgreSQL 17.11 and Flyway
-- Keycloak 26.7.2 with OAuth 2.0 and JWT
+- Keycloak 26.7.4 with OAuth 2.0 and JWT
 - Maven, JUnit, Mockito, and Testcontainers
 - Docker Compose and VS Code Dev Containers
 
@@ -174,6 +174,53 @@ the workflow does not require a shared database or application secrets.
 Surefire, JaCoCo, and PMD reports produced under the ignored `target/` directory
 are uploaded as a workflow artifact for seven days. Artifacts belong to a
 specific workflow run and are not committed to the repository.
+
+### Audit dependencies and container images
+
+The Spring Boot parent manages application dependency versions. When investigating
+a transitive dependency, display its origin instead of adding it directly:
+
+```bash
+./mvnw dependency:tree -Dincludes=org.apache.tomcat.embed:tomcat-embed-core
+```
+
+The expected Tomcat version is `11.0.26`. It is temporarily overridden because
+Spring Boot 4.1.1 manages an older release. Remove the override when a tested
+Spring Boot update manages the same or a newer secure version.
+
+Docker image references keep a readable tag and an immutable multi-platform
+digest. To review the digest currently published for a tag without pulling or
+starting the image, run:
+
+```bash
+docker buildx imagetools inspect postgres:17.11-alpine3.24
+docker buildx imagetools inspect quay.io/keycloak/keycloak:26.7.4
+docker buildx imagetools inspect eclipse-temurin:25.0.4_7-jdk-noble
+docker buildx imagetools inspect eclipse-temurin:25.0.4_7-jre-noble
+```
+
+Build the application image before auditing it. The Dockerfile packaging step
+skips tests, so run `./mvnw clean verify` separately:
+
+```bash
+docker build --pull -t payment-sandbox-api:audit .
+docker scout cves --only-severity critical,high --only-fixed local://payment-sandbox-api:audit
+```
+
+Inspect the current registry versions of the infrastructure images separately:
+
+```bash
+docker scout cves --only-severity critical,high registry://postgres:17.11-alpine3.24
+docker scout cves --platform linux/amd64 --only-severity critical,high registry://quay.io/keycloak/keycloak:26.7.4
+```
+
+`--only-severity` filters the displayed severities; it does not prove that lower
+severity findings are absent. `--only-fixed` shows findings for which the scanner
+knows a remediation. A successful command means that the scan completed, not
+that the image has zero vulnerabilities. Evaluate each result against the
+maintainer's advisory and the component's actual use. Docker Scout sends package
+identifiers and image-layer metadata to Docker's service for analysis; it does
+not upload the complete image.
 
 To stop the environment without deleting database data, run this in a **host
 terminal** in the project folder after stopping Spring Boot:
