@@ -1,0 +1,57 @@
+name: Payment Sandbox CI
+
+on:
+  push:
+    paths:
+      - "projects/02-intermediario/payment-sandbox-api/**"
+      - ".github/workflows/payment-sandbox-ci.yml"
+  pull_request:
+    paths:
+      - "projects/02-intermediario/payment-sandbox-api/**"
+      - ".github/workflows/payment-sandbox-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: payment-sandbox-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: projects/02-intermediario/payment-sandbox-api
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+          cache-dependency-path: |
+            projects/02-intermediario/payment-sandbox-api/pom.xml
+            projects/02-intermediario/payment-sandbox-api/.mvn/wrapper/maven-wrapper.properties
+
+      - name: Run automated verification
+        run: bash ./mvnw --batch-mode --no-transfer-progress clean verify
+
+      - name: Upload verification reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: payment-sandbox-verification-${{ github.run_attempt }}
+          path: |
+            projects/02-intermediario/payment-sandbox-api/target/surefire-reports/
+            projects/02-intermediario/payment-sandbox-api/target/site/jacoco/
+            projects/02-intermediario/payment-sandbox-api/target/reports/pmd.html
+            projects/02-intermediario/payment-sandbox-api/target/pmd.xml
+          if-no-files-found: ignore
+          retention-days: 7

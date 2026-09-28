@@ -1,12 +1,14 @@
 # Payment Sandbox API
 
+[![Payment Sandbox CI](https://github.com/Tawfik-Metwally/web-projects/actions/workflows/payment-sandbox-ci.yml/badge.svg)](https://github.com/Tawfik-Metwally/web-projects/actions/workflows/payment-sandbox-ci.yml)
+
 A containerized REST API for simulating payment creation, queries, idempotency, and refunds. The project does not process real money or accept real card data.
 
 ## Status
 
 The project is under active development. Payment creation, merchant-scoped queries, paginated listing, full refunds, and chronological event history are implemented. Creation and refund operations persist their state, events, and idempotency records within transactional boundaries.
 
-Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: handled MVC errors and security rejections use Problem Details, requests have trace correlation, and Actuator exposes controlled health and metrics. CI, dependency and image auditing, and delivery hardening remain planned.
+Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: handled MVC errors and security rejections use Problem Details, requests have trace correlation, Actuator exposes controlled health and metrics, and GitHub Actions runs the automated verification. Dependency and image auditing and delivery hardening remain planned.
 
 ## Current verification
 
@@ -161,6 +163,17 @@ To run the tests, both quality checks, and generate a JaCoCo coverage report, us
 Open `target/site/jacoco/index.html` after the build. The report highlights executed
 lines and branches as a diagnostic aid; no percentage threshold fails the build.
 The Maven `verify` phase fails when Spotless or PMD reports a violation.
+
+### Continuous integration
+
+The path-filtered `Payment Sandbox CI` workflow runs `clean verify` with Temurin
+Java 25 for relevant pushes and pull requests, and it can also be started
+manually. Tests use disposable PostgreSQL containers through Testcontainers, so
+the workflow does not require a shared database or application secrets.
+
+Surefire, JaCoCo, and PMD reports produced under the ignored `target/` directory
+are uploaded as a workflow artifact for seven days. Artifacts belong to a
+specific workflow run and are not committed to the repository.
 
 To stop the environment without deleting database data, run this in a **host
 terminal** in the project folder after stopping Spring Boot:
