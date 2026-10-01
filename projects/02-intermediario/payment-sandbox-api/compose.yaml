@@ -2,6 +2,7 @@ name: payment-sandbox
 
 services:
   api:
+    image: payment-sandbox-api:local
     build:
       context: .
       target: runtime
@@ -18,6 +19,13 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       postgres:
         condition: service_healthy

@@ -11,6 +11,10 @@ RUN ./mvnw -B -ntp package -DskipTests
 
 FROM eclipse-temurin:25.0.4_7-jre-noble@sha256:b573af9e331196fbc42e246da4df24df9b6c556c73e7efddfde0511f1c9508c5 AS runtime
 
+LABEL org.opencontainers.image.title="Payment Sandbox API" \
+    org.opencontainers.image.description="Containerized API for simulated payment flows" \
+    org.opencontainers.image.source="https://github.com/Tawfik-Metwally/web-projects"
+
 RUN groupadd --system --gid 10001 spring \
     && useradd --system --uid 10001 --gid spring spring
 

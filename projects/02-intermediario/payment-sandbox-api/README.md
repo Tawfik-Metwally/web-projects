@@ -241,6 +241,11 @@ docker compose --env-file .env -f compose.yaml up -d --build
 
 Using only the base Compose file starts the packaged `api`, `postgres`, and `keycloak` services. The root `Dockerfile` builds the JAR with a JDK and runs it in a separate JRE image as a non-root user. Packaging skips test execution, so building the image does not replace running the test suite.
 
+The API image is named `payment-sandbox-api:local`. Its runtime container uses a
+read-only root filesystem, a temporary in-memory `/tmp`, no additional Linux
+capabilities, and `no-new-privileges`. The Dockerfile also publishes OCI labels
+for the image title, description, and source repository.
+
 Inspect service status and follow application logs:
 
 ```bash
@@ -254,7 +259,26 @@ docker compose --env-file .env -f compose.yaml logs --follow api
 docker compose --env-file .env -f compose.yaml stop
 ```
 
-The packaged API uses the same localhost addresses and has the same unfinished features described above. The latest verification covers compilation, the Maven test suite, Spotless, PMD, and JaCoCo; a full smoke test of the packaged runtime remains planned. This Compose configuration is for local use, not production deployment.
+To validate the packaged runtime without modifying the persistent development
+database, first stop the regular development environment. Then run this from a
+Windows PowerShell terminal in the project directory:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\packaged-runtime-smoke-test.ps1
+```
+
+The script creates an isolated Compose project and temporary PostgreSQL volume,
+then verifies Keycloak discovery, API readiness, unauthenticated rejection,
+Client Credentials authentication, payment creation and query, the non-root
+runtime user, read-only filesystem, dropped Linux capabilities,
+`no-new-privileges`, and OCI source metadata. The client secret is read from the
+ignored `.env` file, sent only to the local Keycloak token endpoint, and never
+printed. The script always removes its containers and temporary volume; the
+validated `payment-sandbox-api:local` image remains local.
+
+The packaged API uses the same localhost addresses and has the same unfinished
+features described above. This Compose configuration is for local use, not
+production deployment.
 
 ## Infrastructure and local files
 
