@@ -1,4 +1,4 @@
-# Local testing guide
+# Local testing and demonstration guide
 
 This guide runs the Payment Sandbox API with real Keycloak tokens and the persistent
 `payments_demo` database. All payments are simulated; never use real card data.
@@ -19,6 +19,7 @@ for local inspection; it does not authenticate through the API.
 - [Trace correlation and safe logs](#trace-correlation-and-safe-logs)
 - [Inspect persistence with DBeaver](#inspect-persistence-with-dbeaver)
 - [Run automated verification](#run-automated-verification)
+- [Run the packaged-runtime smoke test](#run-the-packaged-runtime-smoke-test)
 - [Troubleshooting](#troubleshooting)
 - [Stop without deleting data](#stop-without-deleting-data)
 
@@ -486,6 +487,41 @@ no violations, and JaCoCo analyzed 56 classes. Signed-token integration tests
 use a temporary local signing authority, not a live Keycloak server. They
 complement the manual real-Keycloak workflow above.
 
+## Run the packaged-runtime smoke test
+
+This check validates the final Docker image rather than the development process.
+It uses a separate Compose project and a temporary PostgreSQL volume, so it does
+not modify the persistent development or demo databases.
+
+First stop Spring Boot with **Ctrl+C**. In a **Windows host PowerShell terminal**
+from the project directory, stop the regular environment to release ports 5432,
+8080, and 8180:
+
+```powershell
+docker compose --env-file .env -f compose.yaml -f .devcontainer/compose.extend.yaml stop
+```
+
+Then run:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\packaged-runtime-smoke-test.ps1
+```
+
+The script builds `payment-sandbox-api:local`, starts isolated PostgreSQL,
+Keycloak, and API containers, and checks:
+
+- Keycloak discovery and API readiness;
+- rejection without a token and Client Credentials authentication;
+- payment creation and query;
+- the non-root runtime user and read-only root filesystem;
+- dropped Linux capabilities and `no-new-privileges`;
+- the OCI source label.
+
+Success ends with `Packaged runtime smoke test passed.` A `finally` block removes
+the isolated containers, network, and temporary volume on success or failure.
+The validated local image remains available. The script reads the merchant A
+secret from the ignored `.env` file and never prints it.
+
 ## Troubleshooting
 
 | Symptom | Check |
@@ -526,6 +562,9 @@ Credentials helper. Automated verification on 2026-09-27 passed 288 tests with
 zero failures, errors, or skipped tests and completed Spotless, PMD, and JaCoCo.
 The documented changed-payload 409 case is also covered by automated
 idempotency tests and earlier manual checks.
+
+On 2026-10-01, the packaged-runtime smoke test passed all functional, security,
+metadata, and cleanup checks against the final local image.
 
 This is local development verification, not a production security audit.
 

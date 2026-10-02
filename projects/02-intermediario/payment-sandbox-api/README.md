@@ -2,109 +2,144 @@
 
 [![Payment Sandbox CI](https://github.com/Tawfik-Metwally/web-projects/actions/workflows/payment-sandbox-ci.yml/badge.svg)](https://github.com/Tawfik-Metwally/web-projects/actions/workflows/payment-sandbox-ci.yml)
 
-A containerized REST API for simulating payment creation, queries, idempotency, and refunds. The project does not process real money or accept real card data.
+A containerized REST API for learning and demonstrating payment creation,
+merchant-scoped queries, idempotency, and full refunds. All payment decisions
+are simulated. The project never processes real money or real card data.
 
-## Status
+## Status and scope
 
-The project is under active development. Payment creation, merchant-scoped queries, paginated listing, full refunds, and chronological event history are implemented. Creation and refund operations persist their state, events, and idempotency records within transactional boundaries.
+The planned API feature scope is complete and has been verified locally and in
+CI. The project is a portfolio sandbox, not a production payment processor.
 
-Persistent idempotency is enforced per merchant, operation, and key. Identical retries return the existing resource, changed requests under the same key return HTTP 409, and concurrent creation or refund requests recover the database winner after the losing transaction rolls back. Keycloak has a versioned realm, confidential merchant clients, API audience, and business scopes. The API is an OAuth 2.0 Resource Server: Spring Security validates Bearer JWTs and maps the Keycloak authorized-party claim (`azp`) to the merchant principal. This is not a production-ready payment API: handled MVC errors and security rejections use Problem Details, requests have trace correlation, Actuator exposes controlled health and metrics, and GitHub Actions runs the automated verification. A dependency and image audit baseline is documented below; delivery hardening remains planned.
+It provides production-oriented engineering practices in a deliberately limited
+domain: transactional persistence, OAuth 2.0 authorization, merchant isolation,
+concurrent idempotency, Problem Details, trace correlation, health probes,
+metrics, automated verification, dependency auditing, and a hardened packaged
+runtime.
 
-## Current verification
+The application is distributed as source plus a reproducible local Docker image.
+It is not hosted and does not publish images through Continuous Delivery by
+design: the completed educational project has no operated environment or external
+image consumers.
 
-The latest verification was run by the author in the Dev Container on 2026-09-28 with `./mvnw clean verify`: 288 tests passed with no failures, errors, or skipped tests. Spotless confirmed all 96 Java files are formatted, PMD 7.28.0 reported no violations from the focused ruleset, and JaCoCo generated coverage data for 56 classes. The same checkpoint confirmed Tomcat 11.0.26 in the dependency tree and repeated the container image audit after rebuilding the application image.
+## Capabilities
 
-- domain, simulator, request-validation, mapping, hashing, service, and transaction tests;
-- Spring MVC controller tests with mocked service dependencies;
-- Resource Server security tests for missing, invalid, and valid Bearer tokens;
-- PostgreSQL persistence tests with Testcontainers;
-- full application integration tests for payment creation, queries, refunds, replay, conflicts, history, merchant isolation, and concurrent idempotency.
+- deterministic approval or decline of simulated BRL payments;
+- merchant-scoped payment lookup and paginated listing;
+- full refunds with payment state transitions and chronological event history;
+- persistent idempotency for payment and refund creation;
+- replay, changed-payload conflict, and concurrent unique-constraint recovery;
+- OAuth 2.0 Client Credentials with JWT validation through Keycloak;
+- endpoint authorization through `payments:create`, `payments:read`, and
+  `refunds:create` scopes;
+- public health probes and protected metrics for an isolated operations client;
+- RFC 9457 Problem Details, request trace correlation, OpenAPI, and Swagger UI.
 
-Business-flow integration tests use prepared JWT authentication to exercise controllers, services, domain, repositories, Hibernate, and temporary PostgreSQL. Concurrent tests force two transactions to compete for real unique constraints and verify recovery without partial or duplicate data. Focused Resource Server tests exercise the real security chain with a mocked decoder.
+## Architecture
 
-`JwtMerchantIsolationIntegrationTests` additionally sends genuinely signed Bearer tokens through the real decoder, claim converter, HTTP layer, and PostgreSQL. It verifies ownership in both directions, merchant-scoped pagination, payment and refund idempotency, ignored spoofed merchant headers/query parameters, and rejection without persistence. Its temporary signing authority is not the running Keycloak instance. Both test merchants deliberately share a subject and have all business scopes so these tests isolate ownership rather than scope authorization.
-
-`JwtScopeAuthorizationIntegrationTests` adds 49 signed-token/PostgreSQL cases: all five endpoints with exact, missing, empty, unrelated, lookalike, or combined scopes; absent and invalid tokens; unconfigured routes; authorization before body parsing and ownership checks; and unchanged database state after rejection. These tokens use a temporary test issuer, not live Keycloak.
-
-`JwtAuthenticationIntegrationTests` adds 18 cases: expired tokens, incorrect issuers and incorrect audiences through all five HTTP endpoints; identity and scope tampering after signing; and authentication isolation across requests sharing a simulated session. Rejections preserve the existing payment and related row counts. The author also confirmed the live Keycloak/Postman/DBeaver checkpoint on 2026-09-16.
-
-The current identity model is one Keycloak client per merchant: validated `azp` becomes the merchant ID, not `sub`. Renaming a client changes that identity; supporting several clients for one merchant would require a separate mapping design. Header and query values cannot override it. Endpoint scope enforcement is implemented for all five business routes.
-
-For a new payment, the controller returns `201 Created` and a `Location` header, including when the financial result is `DECLINED`. An identical retry returns `200 OK` with `Idempotency-Replayed: true`; changed content under the same key returns `409 Conflict`. Query, list, refund, and event-history routes preserve merchant isolation.
-
-The author reported successful manual verification with real Keycloak tokens in Postman and persistent `payments_demo` data in DBeaver: authentication, endpoint scopes, cross-merchant isolation, payment/refund replay, and expected final row counts. Both manual Bearer token entry and Postman's OAuth 2.0 Client Credentials helper were confirmed. See the [reproducible walkthrough](docs/local-testing.md).
-
-## Code organization
-
-The application uses technical-layer packages under `io.github.tawfikmetwally.payments`:
-
-```text
-payments
-|-- PaymentSandboxApiApplication.java
-|-- config
-|-- controller
-|-- service          services and their Command/Result contracts
-|-- dto
-|   |-- request      HTTP request bodies
-|   `-- response     HTTP response bodies
-|-- entity           JPA persistence mappings
-|-- repository       Spring Data repositories
-|-- enums
-|-- exception
-|-- domain           Payment and Money business rules
-`-- simulator        deterministic provider simulation
+```mermaid
+flowchart LR
+    Client[Merchant client] -->|Client Credentials| Keycloak
+    Keycloak -->|Bearer JWT| Security[Spring Security]
+    Security -->|azp merchant + scopes| Controller[REST controllers]
+    Controller --> Service[Transactional services]
+    Service --> Domain[Domain rules]
+    Service --> Repository[Spring Data repositories]
+    Repository --> Hibernate[Hibernate / JPA]
+    Hibernate --> PostgreSQL[(PostgreSQL)]
 ```
 
-`Payment` remains separate from `PaymentEntity`; this package arrangement does not merge business rules with persistence mappings. `SecurityConfiguration` defines the stateless Resource Server boundary and maps Keycloak's `azp` claim to `Principal.getName()`.
+The validated Keycloak `azp` claim becomes the merchant identity. Request
+headers and query parameters cannot override it. `Payment` business rules remain
+separate from `PaymentEntity` persistence mappings.
 
-Tests live in `src/test/java` and mirror the package of the component they test. Application tests, cross-repository persistence integration tests, and shared Testcontainers support remain in the base package. JUnit runs the tests, Mockito replaces selected dependencies, and AssertJ checks results.
+The application is a layered monolith. This keeps transactions and domain rules
+explicit without introducing distributed-system boundaries that the sandbox does
+not need.
+
+## API operations
+
+| Method | Path | Required scope | Purpose |
+|---|---|---|---|
+| `POST` | `/api/v1/payments` | `payments:create` | Create a simulated payment |
+| `GET` | `/api/v1/payments/{paymentId}` | `payments:read` | Get one merchant-owned payment |
+| `GET` | `/api/v1/payments` | `payments:read` | List merchant-owned payments |
+| `POST` | `/api/v1/payments/{paymentId}/refunds` | `refunds:create` | Create a full refund |
+| `GET` | `/api/v1/payments/{paymentId}/events` | `payments:read` | Read chronological payment history |
+
+While the API is running, the executable contract is available at:
+
+- OpenAPI JSON: [localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
+- OpenAPI YAML: [localhost:8080/v3/api-docs.yaml](http://localhost:8080/v3/api-docs.yaml)
+- Swagger UI: [localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)
+
+OpenAPI is the source of truth for request schemas, response schemas, validation
+constraints, examples, headers, status codes, and operation security.
 
 ## Stack
 
-- Java 25 and Spring Boot 4.1.1
-- Spring Web MVC, Spring Security, and Spring Data JPA
-- PostgreSQL 17.11 and Flyway
-- Keycloak 26.7.4 with OAuth 2.0 and JWT
-- Maven, JUnit, Mockito, and Testcontainers
-- Docker Compose and VS Code Dev Containers
+- Java 25 and Spring Boot 4.1.1;
+- Spring Web MVC, Spring Security, Spring Data JPA, and Actuator;
+- PostgreSQL 17.11, Hibernate, and Flyway;
+- Keycloak 26.7.4 with OAuth 2.0 and JWT;
+- Maven, JUnit, Mockito, AssertJ, and Testcontainers;
+- Spotless, PMD, JaCoCo, and GitHub Actions;
+- Docker Compose and VS Code Dev Containers.
+
+## Verification
+
+The latest author-run `./mvnw clean verify` checkpoint passed 288 tests with no
+failures, errors, or skipped tests. Spotless confirmed all 96 Java files were
+formatted, PMD 7.28.0 reported no violations from the focused ruleset, and
+JaCoCo analyzed 56 classes. The path-filtered `Payment Sandbox CI` workflow runs
+the same verification for relevant pushes and pull requests.
+
+The suite covers domain rules, validation, mapping, service transactions,
+controllers, PostgreSQL persistence, JWT authentication and authorization,
+merchant isolation, replay and conflict behavior, and concurrent idempotency.
+Selected tests send genuinely signed tokens through the real decoder and Spring
+Security chain while using disposable PostgreSQL containers.
+
+The packaged-runtime smoke test was confirmed on 2026-10-01. It built the final
+image, started isolated PostgreSQL, Keycloak, and API services, obtained a real
+Client Credentials token, created and queried a payment, inspected container
+hardening, and removed its temporary containers, network, and volume.
 
 ## Local development
 
-Start with the [complete local testing guide](docs/local-testing.md). It contains:
+Requirements:
 
-- environment preparation and demo database setup;
-- every Postman field for manual Bearer tokens and OAuth 2.0 Client Credentials;
-- payment, refund, history, pagination, and security checks with expected responses;
-- DBeaver connection fields and a read-only verification query;
-- token-expiry, connection, and persistence troubleshooting.
+- Docker Desktop with Linux containers;
+- VS Code with Dev Containers;
+- Postman Desktop for the manual HTTP scenario;
+- DBeaver only when direct database inspection is desired.
 
-### Quick start for an already configured environment
+For first-time setup, authentication, Postman, Swagger UI, Actuator, DBeaver, and
+troubleshooting, follow the [complete local testing guide](docs/local-testing.md).
 
-Requirements: Docker Desktop with Linux containers and VS Code Dev Containers.
-For first-time setup, follow the guide before running these commands.
-
-Open this project folder in VS Code and select **Dev Containers: Reopen in Container**.
-In the Dev Container's Bash terminal at `/workspace`:
+For an already configured environment, open this project folder in VS Code and
+select **Dev Containers: Reopen in Container**. In Dev Container Bash at
+`/workspace`, start the API with the isolated demo database:
 
 ```bash
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
 ```
 
-This uses `payments_demo` with JWT validation enabled. Keep the terminal open;
-stop the application with **Ctrl+C**. The removed `demo-no-auth` profile must not
-be used. Without the `demo` profile, the application uses the development database.
+The `demo` profile changes the database only. JWT authentication and scope
+authorization remain enabled. Stop Spring Boot with **Ctrl+C**.
 
-- API: [localhost:8080](http://localhost:8080)
-- Public health check: [localhost:8080/actuator/health](http://localhost:8080/actuator/health)
-- Public probes: `/actuator/health/liveness` and `/actuator/health/readiness`
-- Protected diagnostics: `/actuator/metrics` and `/actuator/prometheus`
-- OpenAPI contract: [localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
-- Swagger UI: [localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)
-- Keycloak: [localhost:8180](http://localhost:8180)
+Useful local addresses:
 
-Request a token from Keycloak as described in the guide, then send it to the API.
-The OpenAPI URL can also be imported directly into Postman to create a collection.
-A first payment request with a fresh idempotency key is:
+| Service | Address |
+|---|---|
+| API | `http://localhost:8080` |
+| Public health | `http://localhost:8080/actuator/health` |
+| Liveness / readiness | `http://localhost:8080/actuator/health/liveness` and `/actuator/health/readiness` |
+| Keycloak | `http://localhost:8180` |
+| Swagger UI | `http://localhost:8080/swagger-ui/index.html` |
+
+After obtaining a merchant A token as described in the guide, a representative
+request is:
 
 ```http
 POST http://localhost:8080/api/v1/payments
@@ -122,75 +157,91 @@ Content-Type: application/json
 }
 ```
 
-Expected: 201 and an approved payment. An unchanged retry returns 200 without a
-second payment. Never put real tokens or credentials in committed files.
+Expected: `201 Created` with an `APPROVED` payment. An identical retry returns
+`200 OK` with the same payment and `Idempotency-Replayed: true`. Never put real
+tokens, credentials, or card data in committed files.
 
-### Run tests
+## Automated checks
 
-In the Dev Container, without the demo profile:
+Run these commands in Dev Container Bash without the `demo` profile:
 
 ```bash
 ./mvnw clean test
-```
-
-The suite uses disposable PostgreSQL containers. Spring Boot does not need to be
-running. Check the exit status, test totals, and reports in `target/surefire-reports/`.
-The last verified suite has 288 executions, all passing.
-
-### Check formatting and static analysis
-
-Spotless keeps Java formatting deterministic. Apply the configured format after
-editing Java code, then check that no formatting changes remain:
-
-```bash
-./mvnw spotless:apply
 ./mvnw spotless:check
-```
-
-PMD inspects the source for the focused defect and maintainability rules in
-`config/pmd/ruleset.xml`:
-
-```bash
 ./mvnw pmd:check
-```
-
-To run the tests, both quality checks, and generate a JaCoCo coverage report, use:
-
-```bash
 ./mvnw clean verify
 ```
 
-Open `target/site/jacoco/index.html` after the build. The report highlights executed
-lines and branches as a diagnostic aid; no percentage threshold fails the build.
-The Maven `verify` phase fails when Spotless or PMD reports a violation.
+`clean test` compiles and runs the test suite. `clean verify` additionally runs
+the configured quality checks and generates the JaCoCo coverage report at
+`target/site/jacoco/index.html`. Surefire reports are written under
+`target/surefire-reports/`, and PMD reports under `target/reports/`.
 
-### Continuous integration
+Generated `target/` content is ignored by Git. CI uploads the available Surefire,
+JaCoCo, and PMD reports as a seven-day workflow artifact.
 
-The path-filtered `Payment Sandbox CI` workflow runs `clean verify` with Temurin
-Java 25 for relevant pushes and pull requests, and it can also be started
-manually. Tests use disposable PostgreSQL containers through Testcontainers, so
-the workflow does not require a shared database or application secrets.
+## Packaged runtime
 
-Surefire, JaCoCo, and PMD reports produced under the ignored `target/` directory
-are uploaded as a workflow artifact for seven days. Artifacts belong to a
-specific workflow run and are not committed to the repository.
+The root Dockerfile uses a JDK build stage and a smaller JRE runtime stage. The
+Compose service names the final image `payment-sandbox-api:local` and runs it as
+the non-root user `spring:spring` with:
 
-### Audit dependencies and container images
+- a read-only root filesystem;
+- an in-memory `/tmp` filesystem;
+- all Linux capabilities dropped;
+- `no-new-privileges` enabled;
+- OCI title, description, and source labels.
 
-The Spring Boot parent manages application dependency versions. When investigating
-a transitive dependency, display its origin instead of adding it directly:
+Stop the regular development environment before using the packaged workflow,
+because both modes expose the API on port 8080. From a host terminal with `.env`
+configured:
+
+```bash
+docker compose --env-file .env -f compose.yaml up -d --build
+docker compose --env-file .env -f compose.yaml ps
+docker compose --env-file .env -f compose.yaml logs --follow api
+```
+
+Stop the services without deleting persistent data:
+
+```bash
+docker compose --env-file .env -f compose.yaml stop
+```
+
+For a disposable end-to-end check, use Windows PowerShell in the project folder:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\packaged-runtime-smoke-test.ps1
+```
+
+The script creates a separate Compose project and PostgreSQL volume, verifies
+Keycloak discovery, API readiness, authentication, payment creation and query,
+runtime hardening, and OCI metadata, then removes all temporary resources. It
+reads the merchant secret from the ignored `.env` file and never prints it.
+
+## Security, observability, and audit boundaries
+
+Health probes are public and omit component details. Metrics and Prometheus
+output require the operations-only `observability:read` scope. Other Actuator
+paths and unconfigured API paths are denied.
+
+Handled errors and Spring Security rejections use `application/problem+json`.
+Every response contains `X-Trace-Id`; error bodies repeat that value in
+`traceId`. Logs contain request summaries and controlled exception metadata,
+but omit bodies, credentials, tokens, idempotency keys, and payment method
+tokens.
+
+The Spring Boot parent manages most dependencies. Tomcat 11.0.26 is temporarily
+overridden because Spring Boot 4.1.1 manages an older release. Inspect its origin
+before changing the override:
 
 ```bash
 ./mvnw dependency:tree -Dincludes=org.apache.tomcat.embed:tomcat-embed-core
 ```
 
-The expected Tomcat version is `11.0.26`. It is temporarily overridden because
-Spring Boot 4.1.1 manages an older release. Remove the override when a tested
-Spring Boot update manages the same or a newer secure version.
-
-Docker image references keep a readable tag and an immutable multi-platform
-digest. To review the digest currently published for a tag without pulling or
-starting the image, run:
+Infrastructure image references combine readable tags with immutable
+multi-platform digests. Review a current registry digest without starting an
+image:
 
 ```bash
 docker buildx imagetools inspect postgres:17.11-alpine3.24
@@ -199,96 +250,63 @@ docker buildx imagetools inspect eclipse-temurin:25.0.4_7-jdk-noble
 docker buildx imagetools inspect eclipse-temurin:25.0.4_7-jre-noble
 ```
 
-Build the application image before auditing it. The Dockerfile packaging step
-skips tests, so run `./mvnw clean verify` separately:
+Docker Scout can reproduce the point-in-time container audit:
 
 ```bash
 docker build --pull -t payment-sandbox-api:audit .
 docker scout cves --only-severity critical,high --only-fixed local://payment-sandbox-api:audit
-```
-
-Inspect the current registry versions of the infrastructure images separately:
-
-```bash
 docker scout cves --only-severity critical,high registry://postgres:17.11-alpine3.24
 docker scout cves --platform linux/amd64 --only-severity critical,high registry://quay.io/keycloak/keycloak:26.7.4
 ```
 
-`--only-severity` filters the displayed severities; it does not prove that lower
-severity findings are absent. `--only-fixed` shows findings for which the scanner
-knows a remediation. A successful command means that the scan completed, not
-that the image has zero vulnerabilities. Evaluate each result against the
-maintainer's advisory and the component's actual use. Docker Scout sends package
+A completed scan does not imply zero vulnerabilities. Evaluate findings against
+maintainer advisories and actual component use. Docker Scout sends package
 identifiers and image-layer metadata to Docker's service for analysis; it does
 not upload the complete image.
 
-To stop the environment without deleting database data, run this in a **host
-terminal** in the project folder after stopping Spring Boot:
+## Project structure
 
-```powershell
-docker compose --env-file .env -f compose.yaml -f .devcontainer/compose.extend.yaml stop
+```text
+payments
+|-- PaymentSandboxApiApplication.java
+|-- config
+|-- controller
+|-- service          services and Command/Result contracts
+|-- dto
+|   |-- request      HTTP request bodies
+|   `-- response     HTTP response bodies
+|-- domain           Payment, Money, and business rules
+|-- entity           JPA persistence mappings
+|-- repository       Spring Data repositories
+|-- security         Resource Server configuration and security errors
+|-- observability    trace correlation
+|-- exception
+|-- enums
+`-- simulator        deterministic provider simulation
 ```
 
-## Packaged application workflow
+Component tests mirror production packages. Full application and database tests
+live under `integration`, security-specific tests under `security`, and shared
+JWT helpers under `support`.
 
-This is an alternative to the Dev Container workflow. Stop the development environment first; do not run both application modes at once, because they share infrastructure and port 8080.
+Infrastructure and local support files:
 
-From a **local host terminal** in the project directory, with `.env` configured:
+- `.devcontainer/`: VS Code development environment;
+- `docker/keycloak/`: versioned realm, clients, scopes, and audience;
+- `docker/postgres/`: local database initialization;
+- `src/main/resources/db/migration/`: Flyway migrations;
+- `.env.example`: secret-free local configuration template;
+- `scripts/`: packaged-runtime verification;
+- `.mvn/`, `mvnw`, and `mvnw.cmd`: Maven Wrapper.
 
-```bash
-docker compose --env-file .env -f compose.yaml up -d --build
-```
+`.env`, IDE state, generated build output, and private project records are
+excluded from version control.
 
-Using only the base Compose file starts the packaged `api`, `postgres`, and `keycloak` services. The root `Dockerfile` builds the JAR with a JDK and runs it in a separate JRE image as a non-root user. Packaging skips test execution, so building the image does not replace running the test suite.
+## Detailed documentation
 
-The API image is named `payment-sandbox-api:local`. Its runtime container uses a
-read-only root filesystem, a temporary in-memory `/tmp`, no additional Linux
-capabilities, and `no-new-privileges`. The Dockerfile also publishes OCI labels
-for the image title, description, and source repository.
-
-Inspect service status and follow application logs:
-
-```bash
-docker compose --env-file .env -f compose.yaml ps
-docker compose --env-file .env -f compose.yaml logs --follow api
-```
-
-**Ctrl+C** stops following logs, not the containers. To stop them while preserving database data:
-
-```bash
-docker compose --env-file .env -f compose.yaml stop
-```
-
-To validate the packaged runtime without modifying the persistent development
-database, first stop the regular development environment. Then run this from a
-Windows PowerShell terminal in the project directory:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\packaged-runtime-smoke-test.ps1
-```
-
-The script creates an isolated Compose project and temporary PostgreSQL volume,
-then verifies Keycloak discovery, API readiness, unauthenticated rejection,
-Client Credentials authentication, payment creation and query, the non-root
-runtime user, read-only filesystem, dropped Linux capabilities,
-`no-new-privileges`, and OCI source metadata. The client secret is read from the
-ignored `.env` file, sent only to the local Keycloak token endpoint, and never
-printed. The script always removes its containers and temporary volume; the
-validated `payment-sandbox-api:local` image remains local.
-
-The packaged API uses the same localhost addresses and has the same unfinished
-features described above. This Compose configuration is for local use, not
-production deployment.
-
-## Infrastructure and local files
-
-- `.devcontainer/`: development container configuration and its Dockerfile;
-- `docker/keycloak/`: versioned local realm, clients, scopes, and audience;
-- `docker/postgres/`: initialization of database users and databases;
-- `src/main/resources/db/migration/`: Flyway migrations for application tables;
-- `.mvn/`, `mvnw`, and `mvnw.cmd`: Maven Wrapper;
-- `.env.example`: versioned template without real credentials;
-- `.env` and `.vscode/`: local configuration, ignored by Git;
-- `target/`: generated classes, artifacts, and test reports, ignored by Git.
-
-Local secrets, generated files, and private project notes are excluded from version control.
+- [Local testing guide](docs/local-testing.md): initial setup, Keycloak tokens,
+  Postman, Swagger UI, Actuator, DBeaver, verification, and troubleshooting.
+- [OpenAPI JSON](http://localhost:8080/v3/api-docs): executable HTTP contract
+  available while the local API is running.
+- [Swagger UI](http://localhost:8080/swagger-ui/index.html): interactive view of
+  the same contract.
